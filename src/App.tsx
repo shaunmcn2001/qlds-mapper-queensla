@@ -1,156 +1,155 @@
-import React, { useState } from 'react';
-import { Toaster } from 'sonner';
-import { ParcelSearch } from '@/components/ParcelSearch';
-import { LayerPicker } from '@/components/LayerPicker';
-import { MapView } from '@/components/MapView';
-import { PreviewTable } from '@/components/PreviewTable';
-import { ExportPanel } from '@/components/ExportPanel';
-import { intersectLayers } from '@/lib/gis';
-import type { Parcel, Feature } from '@/types';
+import React, { useEffect, useMemo, useState } from "react";
+import { useToast } from "./components/Toast";
+import LoadingOverlay from "./components/LoadingOverlay";
+import MapView from "./components/MapView";
 
-function App() {
-  const [parcels, setParcels] = useState<Parcel[]>([]);
-  const [selectedLayers, setSelectedLayers] = useState<string[]>([]);
-  const [features, setFeatures] = useState<Record<string, Feature[]>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+import {
+  normalizeLotPlan,
+  resolveParcels,
+  getLayers,
+  intersectLayers,
+  exportData,
+} from "./lib/gis";
 
-  const handleParcelResolved = (resolvedParcels: Parcel[]) => {
-    setParcels(resolvedParcels);
-    setFeatures({}); // Clear previous features
-  };
+type LayerMeta = { id: string; label: string };
 
-  const handlePreview = async () => {
-    if (parcels.length === 0 || selectedLayers.length === 0) return;
-    
-    setIsPreviewLoading(true);
+export default function App() {
+  const [lotplan, setLotplan] = useState("3/RP67254");
+
+  const [layers, setLayers] = useState<LayerMeta[]>([]);
+  const [selected, setSelected] = useState<string[]>(["landtypes", "veg_mgmt"]);
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // important: these drive map + export
+  const [parcels, setParcels] = useState<any[]>([]);
+  const [featuresByLayer, setFeaturesByLayer] = useState<Record<string, any[]>>({});
+
+  const toast = useToast();
+
+  useEffect(() => {
+    getLayers()
+      .then((r) => setLayers(r))
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  async function runIntersect() {
+    setError(null);
+    setLoading(true);
+    setFeaturesByLayer({});
     try {
-      const intersectedFeatures = await intersectLayers(parcels[0], selectedLayers);
-      setFeatures(intersectedFeatures);
-    } catch (error) {
-      console.error('Preview failed:', error);
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
+      toast.push("Resolving parcel…");
+      const normalized = normalizeLotPlan(lotplan);
+      const resolved = await resolveParcels(normalized);
+      if (!resolved.length || !resolved[0]?.geometry) {
+        setParcels([]);
+        throw new Error("Parcel not found for that lot/plan.");
+      }
+      setParcels(resolved);
+      toast.push("Parcel resolved", "success");
 
-  const canPreview = parcels.length > 0 && selectedLayers.length > 0;
-  const canExport = parcels.length > 0 && Object.keys(features).length > 0;
-  const hasPreviewData = Object.keys(features).length > 0;
+      toast.push("Intersecting layers…");
+      const inter = await intersectLayers(resolved[0], selected);
+      setFeaturesByLayer(inter);
+      toast.push("Intersect complete", "success");
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      toast.push(e?.message || String(e), "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runExport() {
+    if (!parcels.length) return;
+    try {
+      toast.push("Preparing KMZ…");
+      await exportData(parcels[0], featuresByLayer);
+      toast.push("Download started", "success");
+    } catch (e: any) {
+      setError(e?.message || String(e));
+      toast.push(e?.message || String(e), "error");
+    }
+  }
+
+  const canExport = useMemo(() => parcels.length > 0, [parcels]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">Q</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">QLD Parcel GIS Explorer</h1>
-              <p className="text-sm text-muted-foreground">
-                Resolve parcels and intersect with spatial layers
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="mx-auto max-w-6xl p-6 space-y-6">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-bold">QLDS Mapper</h1>
+        <p className="text-slate-600">
+          Search a Queensland Lot/Plan, select datasets, intersect, and export KML/KMZ.
+        </p>
       </header>
-      
-      <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Panel - Controls */}
-          <div className="space-y-6">
-            <ParcelSearch
-              onParcelResolved={handleParcelResolved}
-              isLoading={isLoading}
-            />
-            
-            <LayerPicker
-              selectedLayers={selectedLayers}
-              onSelectionChange={setSelectedLayers}
-              onPreview={handlePreview}
-              canPreview={canPreview}
-              isLoading={isPreviewLoading}
-            />
-            
-            <ExportPanel
-              parcels={parcels}
-              features={features}
-              canExport={canExport}
-            />
+
+      <section className="grid gap-4 md:grid-cols-[2fr_3fr]">
+        <div className="space-y-3">
+          <label className="block text-sm font-medium">Lot/Plan</label>
+          <input
+            value={lotplan}
+            onChange={(e) => setLotplan(e.target.value)}
+            placeholder="e.g. 3/RP67254 or 3RP67254"
+            className="w-full rounded-lg border bg-white p-3 shadow-sm outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={runIntersect}
+              disabled={loading}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-white shadow hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? "Working…" : "Resolve & Intersect"}
+            </button>
+            <button
+              onClick={runExport}
+              disabled={!canExport}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-white shadow hover:bg-emerald-700 disabled:opacity-50"
+            >
+              Export KMZ
+            </button>
           </div>
-          
-          {/* Middle Panel - Map */}
-          <div className="space-y-6">
-            <MapView
-              parcels={parcels}
-              features={features}
-              selectedLayers={selectedLayers}
-            />
-            
-            {hasPreviewData && (
-              <PreviewTable
-                features={features}
-                selectedLayers={selectedLayers}
-              />
-            )}
-          </div>
-          
-          {/* Right Panel - Info */}
-          <div className="space-y-6">
-            {!hasPreviewData && (
-              <div className="bg-muted/50 rounded-lg p-6 text-center">
-                <h3 className="font-medium mb-2">Getting Started</h3>
-                <div className="text-sm text-muted-foreground space-y-2">
-                  <p>1. Enter a Queensland Lot/Plan reference</p>
-                  <p>2. Select spatial layers to intersect</p>
-                  <p>3. Preview intersections on the map</p>
-                  <p>4. Export results as KML or GeoJSON</p>
-                </div>
-              </div>
-            )}
-            
-            {parcels.length > 0 && (
-              <div className="bg-card border rounded-lg p-4">
-                <h3 className="font-medium mb-3">Resolved Parcels</h3>
-                <div className="space-y-2">
-                  {parcels.map((parcel, index) => (
-                    <div key={parcel.id} className="flex justify-between text-sm">
-                      <span className="font-mono">{parcel.lotPlan}</span>
-                      <span className="text-muted-foreground">
-                        {parcel.area.toLocaleString()} m²
-                      </span>
-                    </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium">Datasets</label>
+            <div className="max-h-60 overflow-auto rounded-lg border bg-white p-3 shadow-sm">
+              {layers.length === 0 ? (
+                <p className="text-sm text-slate-500">Loading layers…</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {layers.map((l) => (
+                    <label key={l.id} className="flex items-center gap-2 rounded border p-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(l.id)}
+                        onChange={() => {
+                          if (selected.includes(l.id))
+                            setSelected(selected.filter((x) => x !== l.id));
+                          else setSelected([...selected, l.id]);
+                        }}
+                      />
+                      <span className="font-medium">{l.label}</span>
+                      <span className="text-xs text-slate-500 ml-auto">{l.id}</span>
+                    </label>
                   ))}
                 </div>
-              </div>
-            )}
-            
-            {hasPreviewData && (
-              <div className="bg-card border rounded-lg p-4">
-                <h3 className="font-medium mb-3">Layer Summary</h3>
-                <div className="space-y-2">
-                  {selectedLayers.map(layerId => {
-                    const layerFeatures = features[layerId] || [];
-                    return (
-                      <div key={layerId} className="flex justify-between text-sm">
-                        <span className="capitalize">{layerId.replace('_', ' ')}</span>
-                        <span className="text-muted-foreground">
-                          {layerFeatures.length} feature{layerFeatures.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </main>
-      
-      <Toaster position="bottom-right" />
+
+        <div className="rounded-lg border bg-white p-2 shadow-sm min-h-[420px]">
+          <MapView parcels={parcels} featuresByLayer={featuresByLayer} />
+        </div>
+      </section>
+
+      {error && <p className="text-red-600 text-sm">{error}</p>}
+
+      <footer className="pt-6 text-xs text-slate-500">
+        API: <code>{import.meta.env.VITE_API_BASE || "http://localhost:8000"}</code>
+      </footer>
+
+      <LoadingOverlay show={loading} label={error ? "Retrying…" : "Working…"} />
     </div>
   );
 }
-
-export default App
