@@ -64,47 +64,99 @@ async def parcel_resolve(body: ParcelResolveRequest):
         log.exception('Parcel resolve failed')
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/intersect")
+@app.post('/intersect')
 async def intersect(body: IntersectRequest):
-    layers = load_layers_config()
-    layer_map = {l['id']: l for l in layers}
-    missing = [lid for lid in body.layer_ids if lid not in layer_map]
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Unknown layer ids: {missing}")
-    parcel_geom = body.parcel
-    if not parcel_geom:
-        raise HTTPException(status_code=400, detail='parcel geometry is required')
-    esri_geom = geojson_to_esri_polygon(parcel_geom)
-    out = []
-    for lid in body.layer_ids:
-        layer = layer_map[lid]
-        url = layer['url']
-        include_fields = layer.get('fields', {}).get('include', [])
-        outFields = ','.join(include_fields) if include_fields else '*'
-        feats = await fetch_all_features(url, {
-            'geometry': esri_geom,
-            'geometryType': 'esriGeometryPolygon',
-            'spatialRel': 'esriSpatialRelIntersects',
-            'outFields': outFields,
-            'returnGeometry': 'true',
-            'outSR': 4326
-        })
-        features = []
-        from shapely.geometry import Polygon
-        for f in feats:
-            geom_esri = f.get('geometry') or {}
-            rings = geom_esri.get('rings')
-            if not rings: continue
-            poly = Polygon(rings[0], holes=rings[1:]) if rings else None
-            if poly and not poly.is_valid: poly = poly.buffer(0)
-            if poly:
-                features.append({
-                    'geometry': mapping(poly),
-                    'attrs': f.get('attributes', {}),
-                    'name': layer.get('name_template', layer.get('label', 'Feature'))
+    try:
+        layers = load_layers_config()
+        layer_map = {l['id']: l for l in layers}
+        missing = [lid for lid in body.layer_ids if lid not in layer_map]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Unknown layer ids: {missing}")
+
+        parcel_geom = body.parcel
+        if not parcel_geom:
+            raise HTTPException(status_code=400, detail='parcel geometry is required')
+
+        # Build Esri geometries
+        esri_poly = geojson_to_esri_polygon(parcel_geom, simplify_tol=1e-6)
+        esri_env  = geojson_to_esri_envelope(parcel_geom)  # fallback bbox
+
+        results = []
+
+        for lid in body.layer_ids:
+            layer = layer_map[lid]
+            url = layer['url']
+            include_fields = layer.get('fields', {}).get('include', [])
+            outFields = ','.join(include_fields) if include_fields else '*'
+
+            # Common params
+            common = {
+                'outFields': outFields,
+                'returnGeometry': 'true',
+                'outSR': 4326,
+                'returnExceededLimitFeatures': 'true',
+                'maxRecordCountFactor': 2
+            }
+
+            features = []
+            # 1) Try polygon intersect via POST
+            try:
+                feats = await fetch_all_features(url, {
+                    **common,
+                    'geometry': esri_poly,
+                    'geometryType': 'esriGeometryPolygon',
+                    'spatialRel': 'esriSpatialRelIntersects',
                 })
-        out.append({'id': lid, 'label': layer.get('label', lid), 'features': features, 'style': layer.get('style', {})})
-    return {'layers': out}
+                features = feats
+            except Exception as e_poly:
+                # 2) Fallback to envelope intersect
+                try:
+                    feats = await fetch_all_features(url, {
+                        **common,
+                        'geometry': esri_env,
+                        'geometryType': 'esriGeometryEnvelope',
+                        'spatialRel': 'esriSpatialRelIntersects',
+                    })
+                    features = feats
+                except Exception as e_env:
+                    # Bubble up both errors for transparency
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"ArcGIS query failed for layer '{lid}'. Polygon error: {e_poly}. Envelope error: {e_env}"
+                    )
+
+            # Convert ESRI → GeoJSON Polygons
+            out_feats = []
+            from shapely.geometry import Polygon as _Polygon
+            from shapely.geometry import MultiPolygon as _MultiPolygon
+            from shapely.geometry import shape as _shape
+            from shapely.geometry import mapping as _mapping
+
+            for f in features:
+                geom_esri = f.get('geometry') or {}
+                rings = geom_esri.get('rings') or []
+                if rings:
+                    try:
+                        poly = _Polygon(rings[0], holes=rings[1:]) if rings else None
+                        if poly and not poly.is_valid:
+                            poly = poly.buffer(0)
+                        if poly and poly.is_valid and not poly.is_empty:
+                            out_feats.append({
+                                'geometry': _mapping(poly),
+                                'attrs': f.get('attributes', {}),
+                                'name': layer.get('name_template', layer.get('label', 'Feature'))
+                            })
+                    except Exception:
+                        continue
+
+            results.append({
+                'id': lid,
+                'label': layer.get('label', lid),
+                'features': out_feats,
+                'style': layer.get('style', {})
+            })
+
+        return {'layers': results}
 
 @app.post("/export/kml")
 def export_kml(body: ExportKmlRequest):
