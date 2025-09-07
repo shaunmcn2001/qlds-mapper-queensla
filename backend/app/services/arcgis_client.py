@@ -1,3 +1,4 @@
+# backend/app/services/arcgis_client.py
 import httpx
 from typing import Dict, Any, List
 from ..core.settings import settings
@@ -5,9 +6,7 @@ from ..core.settings import settings
 BASE_PARAMS = {"f": "json"}
 
 async def arcgis_query(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Send ArcGIS /query as POST (form-encoded), to avoid URL length limits.
-    """
+    """Send ArcGIS /query as POST to avoid URL length limits."""
     q = {**BASE_PARAMS, **params}
     timeout = httpx.Timeout(settings.HTTP_TIMEOUT_SECONDS)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -15,7 +14,6 @@ async def arcgis_query(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
         r.raise_for_status()
         data = r.json()
         if isinstance(data, dict) and 'error' in data:
-            # Surface ArcGIS errors
             raise RuntimeError(f"ArcGIS error: {data['error']}")
         return data
 
