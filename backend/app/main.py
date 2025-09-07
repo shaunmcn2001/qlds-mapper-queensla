@@ -6,8 +6,7 @@ from pathlib import Path
 import yaml
 from typing import List, Dict, Any
 
-from shapely.geometry import mapping, Polygon, MultiPolygon
-
+from shapely.geometry import mapping  # only used for the parcel outline in /export
 from .core.settings import settings
 from .core.logging import get_logger
 
@@ -15,7 +14,7 @@ from .services.arcgis_client import fetch_all_features
 from .services.parcel_resolver import normalize_lotplan, resolve_parcels
 from .services.export_kml import write_kmz
 
-# NOTE: we use both polygon + envelope conversions for robust ArcGIS queries
+# polygon + envelope converters for querying ArcGIS
 from .utils.geo import (
     geojson_to_esri_polygon,
     geojson_to_esri_envelope,
@@ -31,7 +30,7 @@ log = get_logger(__name__)
 
 app = FastAPI(
     title="Lot/Plan → ArcGIS → KML API",
-    version="0.3.0",
+    version="0.3.1",
 )
 
 # --------------------------
@@ -61,7 +60,7 @@ def load_layers_config() -> List[Dict[str, Any]]:
     return services
 
 # --------------------------
-# Simple routes
+# Root / Health / Layers
 # --------------------------
 @app.get("/")
 def root():
@@ -80,9 +79,6 @@ def get_layers():
 # --------------------------
 @app.post("/parcel/normalize")
 def parcel_normalize(body: ParcelResolveRequest):
-    """
-    Normalises to exactly 'LOT/PLAN'. Example: '3RP67254' → ['3/RP67254'].
-    """
     normalized = normalize_lotplan(body.lotplan)
     if not normalized:
         raise HTTPException(status_code=400, detail="Could not parse lot/plan input")
@@ -90,10 +86,6 @@ def parcel_normalize(body: ParcelResolveRequest):
 
 @app.post("/parcel/resolve")
 async def parcel_resolve(body: ParcelResolveRequest):
-    """
-    Resolve a parcel geometry via the cadastre.
-    Prefers equality on the combined 'lotplan' field, then falls back to lot+plan.
-    """
     normalized = normalize_lotplan(body.lotplan)
     if not normalized:
         raise HTTPException(status_code=400, detail="Could not parse lot/plan input")
@@ -105,18 +97,42 @@ async def parcel_resolve(body: ParcelResolveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --------------------------
-# Intersect (robust)
+# Esri→GeoJSON (no Shapely) helper
+# --------------------------
+def esri_polygon_to_geojson(geom_esri: Dict[str, Any]) -> Dict[str, Any] | None:
+    """
+    Convert an Esri JSON polygon {'rings': [[ [x,y], ... ], ... ]} to GeoJSON Polygon.
+    We do NOT use Shapely here to avoid GEOS collection errors on funky ring sets.
+    """
+    rings = (geom_esri or {}).get("rings") or []
+    if not rings:
+        return None
+    try:
+        coords: List[List[List[float]]] = []
+        for ring in rings:
+            # guard against bogus rings
+            if not ring or len(ring) < 4:
+                continue
+            coords.append([[float(x), float(y)] for x, y in ring])
+        if not coords:
+            return None
+        return {"type": "Polygon", "coordinates": coords}
+    except Exception:
+        return None
+
+# --------------------------
+# Intersect (robust, ArcGIS POST)
 # --------------------------
 @app.post("/intersect")
 async def intersect(body: IntersectRequest):
     """
-    Intersect a parcel geometry with one or more configured ArcGIS layers.
+    Intersect a parcel geometry with configured ArcGIS layers.
 
     Hardening:
-      - Sends ArcGIS /query as POST (form-encoded) to avoid URL length limits.
-      - Lightly simplifies parcel in polygon conversion (done in utils.geo).
-      - Fallback to envelope (bbox) intersect if polygon query fails.
-      - Returns a clear JSON error (502) when upstream ArcGIS fails.
+      - ArcGIS /query via POST (form-encoded) → avoids URL length limits.
+      - Slight parcel simplification for the query (in utils.geo).
+      - Fallback to envelope (bbox) if polygon query fails.
+      - Convert Esri rings → GeoJSON WITHOUT Shapely (prevents GEOS errors).
     """
     try:
         layers_cfg = load_layers_config()
@@ -152,7 +168,7 @@ async def intersect(body: IntersectRequest):
                 "maxRecordCountFactor": 2,
             }
 
-            # 1) Try polygon intersect (POST)
+            # 1) Polygon intersect
             features = []
             try:
                 feats = await fetch_all_features(
@@ -166,7 +182,7 @@ async def intersect(body: IntersectRequest):
                 )
                 features = feats
             except Exception as e_poly:
-                # 2) Fallback to envelope intersect
+                # 2) Envelope fallback
                 try:
                     feats = await fetch_all_features(
                         url,
@@ -187,28 +203,19 @@ async def intersect(body: IntersectRequest):
                         ),
                     )
 
-            # Convert Esri rings → GeoJSON polygons
+            # Esri → GeoJSON (no Shapely)
             out_feats = []
             for f in features:
-                geom_esri = f.get("geometry") or {}
-                rings = geom_esri.get("rings") or []
-                if not rings:
+                gj = esri_polygon_to_geojson(f.get("geometry") or {})
+                if not gj:
                     continue
-                try:
-                    poly = Polygon(rings[0], holes=rings[1:]) if rings else None
-                    if poly and not poly.is_valid:
-                        poly = poly.buffer(0)
-                    if poly and poly.is_valid and not poly.is_empty:
-                        out_feats.append(
-                            {
-                                "geometry": mapping(poly),
-                                "attrs": f.get("attributes", {}),
-                                "name": layer.get("name_template", layer.get("label", "Feature")),
-                            }
-                        )
-                except Exception:
-                    # Skip malformed feature geometries
-                    continue
+                out_feats.append(
+                    {
+                        "geometry": gj,
+                        "attrs": f.get("attributes", {}),
+                        "name": layer.get("name_template", layer.get("label", "Feature")),
+                    }
+                )
 
             results.append(
                 {
