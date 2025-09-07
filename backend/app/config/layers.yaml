@@ -1,0 +1,30 @@
+services:
+  - id: landtypes
+    label: "Land Types"
+    url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/LandTypes/MapServer/1"
+    fields:
+      include: ["LT_NAME","LT_CODE","LANDSYS","REGION","SOURCE"]
+      aliases:
+        LT_NAME: "Land Type"
+        LT_CODE: "Code"
+        LANDSYS: "Land System"
+        REGION: "Region"
+        SOURCE: "Source"
+    name_template: "${LT_NAME} (${LT_CODE})"
+    style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.35, color: "#1f77b4" }
+    popup: { order: ["LT_NAME","LT_CODE","LANDSYS","REGION","SOURCE"], hide_null: true }
+
+  - id: veg_mgmt
+    label: "Vegetation Management"
+    url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Biota/VegetationManagement/MapServer/101"
+    fields:
+      include: ["VMSTATUS","RE","RE_DESC","BIOTA_CODE","BIOTA_NAME"]
+      aliases:
+        VMSTATUS: "VM Status"
+        RE: "Regional Ecosystem"
+        RE_DESC: "RE Description"
+        BIOTA_CODE: "Biota Code"
+        BIOTA_NAME: "Biota Name"
+    name_template: "${VMSTATUS} - ${RE}"
+    style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.30, color: "#2ca02c" }
+    popup: { order: ["VMSTATUS","RE","RE_DESC","BIOTA_CODE","BIOTA_NAME"], hide_null: true }
