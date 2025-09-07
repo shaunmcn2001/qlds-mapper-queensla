@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Card } from '@/components/ui/card';
 import type { Parcel, Feature, LayerConfig } from '@/types';

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -93,7 +94,7 @@ function LayerItem({
       <Checkbox
         id={layer.id}
         checked={selected}
-        onCheckedChange={onToggle}
+        onCheckedChange={(checked) => onToggle(checked === true)}
         className="mt-0.5"
       />
       <div className="flex-1 space-y-1">
