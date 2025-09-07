@@ -1,58 +1,39 @@
-export interface ParcelInput {
-  input: string;
-  normalized: string[];
-}
+export type ParcelInput = { lotPlan: string };
 
-export interface Parcel {
+export type Parcel = {
   id: string;
   lotPlan: string;
-  geometry: GeoJSON.Polygon;
-  area: number;
-  centroid: [number, number];
-}
+  geometry: { type: "Polygon"; coordinates: number[][][] };
+  centroid?: [number, number];
+  area?: number;
+};
 
-export interface LayerConfig {
+export type Feature = {
+  id: string;
+  geometry: { type: "Polygon"; coordinates: number[][][] };
+  properties: Record<string, any>;
+  layerId: string;
+  displayName?: string;
+};
+
+export type LayerConfig = {
   id: string;
   label: string;
-  url: string;
+  url?: string;
   description?: string;
-  fields: {
-    include: string[];
-    aliases: Record<string, string>;
+  fields?: {
+    include?: string[];
+    aliases?: Record<string, string>;
   };
-  nameTemplate: string;
-  style: {
-    lineWidth: number;
-    lineOpacity: number;
-    polyOpacity: number;
-    color: string;
+  nameTemplate?: string;
+  style?: {
+    lineWidth?: number;
+    lineOpacity?: number;
+    polyOpacity?: number;
+    color?: string;
   };
-  popup: {
-    order: string[];
-    hideNull: boolean;
+  popup?: {
+    order?: string[];
+    hideNull?: boolean;
   };
-}
-
-export interface Feature {
-  id: string;
-  layerId: string;
-  geometry: GeoJSON.Geometry;
-  properties: Record<string, any>;
-  displayName: string;
-}
-
-export interface ExportOptions {
-  format: 'kml' | 'geojson';
-  clipToParcel: boolean;
-  simplifyTolerance: number;
-  includeAttributes: boolean;
-  fillOpacity: number;
-  strokeWidth: number;
-}
-
-export interface LayerPreset {
-  id: string;
-  name: string;
-  selectedLayers: string[];
-  exportOptions: ExportOptions;
-}
+};
