@@ -1,41 +1,64 @@
-from shapely.geometry import shape, Polygon, MultiPolygon, mapping, box
-from shapely.geometry.base import BaseGeometry
-from typing import Any, Dict, List
+# backend/app/utils/geo.py
+# Pure-JSON helpers for ArcGIS geometry payloads (no Shapely here).
 
-def ensure_multipolygon(geom: BaseGeometry):
-    if isinstance(geom, Polygon):
-        return MultiPolygon([geom])
-    return geom
+from typing import Any, Dict, List, Tuple
 
-def simplify_geom(geom: BaseGeometry, tol: float = 1e-6) -> BaseGeometry:
-    try:
-        g2 = geom.simplify(tol, preserve_topology=True)
-        return g2 if (not g2.is_empty and g2.is_valid) else geom
-    except Exception:
-        return geom
+def _iter_coords(geom: Dict[str, Any]):
+    """Yield all (x,y) coordinate pairs from a GeoJSON Polygon/MultiPolygon."""
+    gtype = (geom or {}).get("type")
+    coords = (geom or {}).get("coordinates", [])
+    if gtype == "Polygon":
+        for ring in coords:
+            for x, y in ring:
+                yield float(x), float(y)
+    elif gtype == "MultiPolygon":
+        for poly in coords:
+            for ring in poly:
+                for x, y in ring:
+                    yield float(x), float(y)
 
-def geojson_to_esri_polygon(geojson_geom: Dict[str, Any], simplify_tol: float = 1e-6) -> Dict[str, Any]:
+def _bbox_from_geojson(geom: Dict[str, Any]) -> Tuple[float, float, float, float]:
+    xmin = ymin = float("inf")
+    xmax = ymax = float("-inf")
+    found = False
+    for x, y in _iter_coords(geom):
+        found = True
+        if x < xmin: xmin = x
+        if x > xmax: xmax = x
+        if y < ymin: ymin = y
+        if y > ymax: ymax = y
+    if not found:
+        # fallback empty bbox
+        return (0.0, 0.0, 0.0, 0.0)
+    return (xmin, ymin, xmax, ymax)
+
+def geojson_to_esri_polygon(geojson_geom: Dict[str, Any], simplify_tol: float = 0.0) -> Dict[str, Any]:
     """
-    Convert GeoJSON Polygon/MultiPolygon → Esri JSON polygon with rings (EPSG:4326).
-    Lightly simplifies first to reduce payload size.
+    Convert GeoJSON Polygon/MultiPolygon → Esri polygon (rings).
+    No simplification here (kept pure JSON to avoid Shapely).
     """
-    g = shape(geojson_geom)
-    g = simplify_geom(g, simplify_tol)
-    mp = ensure_multipolygon(g)
+    gtype = (geojson_geom or {}).get("type")
+    coords = (geojson_geom or {}).get("coordinates", [])
     rings: List[List[List[float]]] = []
-    for poly in mp.geoms:
-        rings.append([[x, y] for x, y in poly.exterior.coords])
-        for interior in poly.interiors:
-            rings.append([[x, y] for x, y in interior.coords])
+
+    if gtype == "Polygon":
+        for ring in coords:
+            if not ring or len(ring) < 4:  # must be closed ring with at least 4 points
+                continue
+            rings.append([[float(x), float(y)] for x, y in ring])
+    elif gtype == "MultiPolygon":
+        for poly in coords:
+            # Each poly is list of rings
+            for ring in poly:
+                if not ring or len(ring) < 4:
+                    continue
+                rings.append([[float(x), float(y)] for x, y in ring])
+
     return {"rings": rings, "spatialReference": {"wkid": 4326}}
 
 def geojson_to_esri_envelope(geojson_geom: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Return an Esri JSON envelope (xmin,ymin,xmax,ymax) for bbox fallback.
-    """
-    g = shape(geojson_geom)
-    minx, miny, maxx, maxy = g.bounds
+    xmin, ymin, xmax, ymax = _bbox_from_geojson(geojson_geom)
     return {
-        "xmin": minx, "ymin": miny, "xmax": maxx, "ymax": maxy,
+        "xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax,
         "spatialReference": {"wkid": 4326}
     }
