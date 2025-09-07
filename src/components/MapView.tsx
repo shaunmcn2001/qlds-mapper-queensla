@@ -1,163 +1,89 @@
-import React, { useEffect, useRef } from 'react';
-import L from 'leaflet';
-import { Card } from '@/components/ui/card';
-import type { Parcel, Feature, LayerConfig } from '@/types';
-import { getLayers } from '@/lib/gis';
+import React, { useEffect, useRef } from "react";
 
-// Fix for default markers in React-Leaflet
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
+type LatLng = google.maps.LatLngLiteral;
 
-interface MapViewProps {
-  parcels: Parcel[];
-  features: Record<string, Feature[]>;
-  selectedLayers: string[];
+type Props = {
+  parcels: Array<{ geometry: { type: string; coordinates: any }, centroid?: [number, number] }>;
+  featuresByLayer: Record<string, Array<{ geometry: any; properties?: any; displayName?: string }>>;
+};
+
+// Convert GeoJSON Polygon (lon,lat) → Google paths (lat,lng)
+function polygonToPaths(geom: any): LatLng[][] {
+  const out: LatLng[][] = [];
+  const rings = geom?.coordinates || [];
+  for (const ring of rings) {
+    out.push(ring.map(([x, y]: [number, number]) => ({ lat: y, lng: x })));
+  }
+  return out;
 }
 
-export function MapView({ parcels, features, selectedLayers }: MapViewProps) {
-  const mapRef = useRef<L.Map | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const layerGroupsRef = useRef<L.LayerGroup[]>([]);
-  const layers = getLayers();
-  
-  // Initialize map effect
-  useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-    
-    // Initialize map
-    const map = L.map(containerRef.current, {
-      center: [-27.4705, 153.0245],
-      zoom: 10,
-      zoomControl: true,
-      attributionControl: true
-    });
+export default function MapView({ parcels, featuresByLayer }: Props) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapObj = useRef<google.maps.Map | null>(null);
+  const overlays = useRef<Array<google.maps.Polygon | google.maps.Polyline>>([]);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-
-    mapRef.current = map;
-    
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
-  
-  // Update layers effect
   useEffect(() => {
     if (!mapRef.current) return;
-    
-    const map = mapRef.current;
-    
-    // Clear existing layer groups
-    layerGroupsRef.current.forEach(group => {
-      map.removeLayer(group);
-    });
-    layerGroupsRef.current = [];
 
-    // Add parcel boundaries
-    if (parcels.length > 0) {
-      const parcelGroup = L.layerGroup();
-      
-      parcels.forEach(parcel => {
-        const polygon = L.polygon(
-          parcel.geometry.coordinates[0].map(coord => [coord[1], coord[0]] as L.LatLngExpression),
-          {
-            color: '#1f77b4',
-            fillColor: '#1f77b4',
-            weight: 3,
-            opacity: 1,
-            fillOpacity: 0.1
-          }
-        );
-        
-        polygon.bindPopup(`
-          <div class="font-medium">${parcel.lotPlan}</div>
-          <div class="text-sm text-muted-foreground">Area: ${parcel.area.toLocaleString()} m²</div>
-        `);
-        
-        parcelGroup.addLayer(polygon);
+    if (!mapObj.current) {
+      mapObj.current = new google.maps.Map(mapRef.current, {
+        center: { lat: -27.4698, lng: 153.0251 }, // default Brisbane
+        zoom: 7,
+        mapTypeId: "terrain",
       });
-      
-      parcelGroup.addTo(map);
-      layerGroupsRef.current.push(parcelGroup);
-      
-      // Fit map to parcels
-      const bounds = L.latLngBounds(
-        parcels.map(p => p.geometry.coordinates[0].map(coord => [coord[1], coord[0]] as L.LatLngExpression)).flat()
-      );
-      map.fitBounds(bounds, { padding: [20, 20] });
     }
 
-    // Add intersected features
-    selectedLayers.forEach(layerId => {
-      const layerFeatures = features[layerId];
-      if (!layerFeatures) return;
-      
-      const layerConfig = layers.find(l => l.id === layerId);
-      if (!layerConfig) return;
-      
-      const featureGroup = L.layerGroup();
-      
-      layerFeatures.forEach(feature => {
-        if (feature.geometry.type === 'Polygon') {
-          const polygon = L.polygon(
-            feature.geometry.coordinates[0].map(coord => [coord[1], coord[0]] as L.LatLngExpression),
-            {
-              color: layerConfig.style.color,
-              fillColor: layerConfig.style.color,
-              weight: layerConfig.style.lineWidth,
-              opacity: layerConfig.style.lineOpacity,
-              fillOpacity: layerConfig.style.polyOpacity
-            }
-          );
-          
-          // Create popup content
-          const popupContent = createPopupContent(feature, layerConfig);
-          polygon.bindPopup(popupContent);
-          
-          featureGroup.addLayer(polygon);
-        }
+    // Clear old shapes
+    overlays.current.forEach((o) => o.setMap(null));
+    overlays.current = [];
+
+    const map = mapObj.current;
+
+    // Draw parcels (outline only)
+    const bounds = new google.maps.LatLngBounds();
+    parcels.forEach((p) => {
+      const paths = polygonToPaths(p.geometry);
+      if (paths.length === 0) return;
+      const poly = new google.maps.Polygon({
+        paths,
+        strokeColor: "#111827",
+        strokeOpacity: 1,
+        strokeWeight: 2,
+        fillOpacity: 0,
+        map,
       });
-      
-      featureGroup.addTo(map);
-      layerGroupsRef.current.push(featureGroup);
+      overlays.current.push(poly);
+      // fit map to the parcel exterior
+      paths[0].forEach((pt) => bounds.extend(pt));
     });
-  }, [parcels, features, selectedLayers, layers]);
 
-  return (
-    <Card className="overflow-hidden">
-      <div 
-        ref={containerRef}
-        className="h-96 w-full"
-        style={{ minHeight: '400px' }}
-      />
-    </Card>
-  );
-}
+    // Draw intersected features per layer (filled polys)
+    const layerColors = ["#1f77b4", "#2ca02c", "#e76f51", "#9467bd", "#ff7f0e", "#8c564b"];
+    const layerIds = Object.keys(featuresByLayer);
+    layerIds.forEach((lid, idx) => {
+      const color = layerColors[idx % layerColors.length];
+      const feats = featuresByLayer[lid] || [];
+      feats.forEach((f) => {
+        const paths = polygonToPaths(f.geometry);
+        if (paths.length === 0) return;
+        const poly = new google.maps.Polygon({
+          paths,
+          strokeColor: color,
+          strokeOpacity: 0.9,
+          strokeWeight: 1,
+          fillColor: color,
+          fillOpacity: 0.25,
+          map,
+        });
+        overlays.current.push(poly);
+      });
+    });
 
-function createPopupContent(feature: Feature, layerConfig: LayerConfig): string {
-  const { properties } = feature;
-  const { popup, fields } = layerConfig;
-  
-  let content = `<div class="font-medium mb-2">${feature.displayName}</div>`;
-  
-  const fieldsToShow = popup.order.length > 0 ? popup.order : fields.include;
-  
-  fieldsToShow.forEach(field => {
-    const value = properties[field];
-    if (popup.hideNull && (value == null || value === '')) return;
-    
-    const label = fields.aliases[field] || field;
-    content += `<div class="text-sm"><strong>${label}:</strong> ${value || 'N/A'}</div>`;
-  });
-  
-  return content;
+    // Fit bounds if we have a parcel
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds);
+    }
+  }, [parcels, featuresByLayer]);
+
+  return <div ref={mapRef} className="h-[400px] w-full rounded" />;
 }
