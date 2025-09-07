@@ -100,17 +100,12 @@ async def parcel_resolve(body: ParcelResolveRequest):
 # Esri→GeoJSON (no Shapely) helper
 # --------------------------
 def esri_polygon_to_geojson(geom_esri: Dict[str, Any]) -> Dict[str, Any] | None:
-    """
-    Convert an Esri JSON polygon {'rings': [[ [x,y], ... ], ... ]} to GeoJSON Polygon.
-    We do NOT use Shapely here to avoid GEOS collection errors on funky ring sets.
-    """
     rings = (geom_esri or {}).get("rings") or []
     if not rings:
         return None
     try:
         coords: List[List[List[float]]] = []
         for ring in rings:
-            # guard against bogus rings
             if not ring or len(ring) < 4:
                 continue
             coords.append([[float(x), float(y)] for x, y in ring])
