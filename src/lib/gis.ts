@@ -1,4 +1,4 @@
-import type { ParcelInput, LayerConfig, Parcel, Feature } from '../types';
+import type { ParcelInput, LayerConfig, Parcel, Feature } from '@/types';
 
 // Mock data for demonstration
 const MOCK_LAYERS: LayerConfig[] = [
