@@ -1,3 +1,5 @@
+# backend/app/services/parcel_resolver.py
+
 import re
 from typing import List, Dict, Any
 from shapely.geometry import Polygon, mapping
@@ -5,76 +7,157 @@ from shapely.ops import unary_union
 from ..core.settings import settings
 from .arcgis_client import fetch_all_features
 
-LOTPLAN_RX = re.compile(r"(?i)(?:lot\s*)?(?P<lot>[A-Z0-9\-]+)(?:\s*(?:sec(?:tion)?\s*)?(?P<section>[A-Z0-9]+))?\s*(?:on\s*)?(?:sp|rp|cp|dp|op|bp|ep|ap|mp|gdp|sr|cve|plan)?\s*(?P<plan>[A-Z]{1,3}\s*\d{1,7}|\d{1,7}|[A-Z]{1,3}\d{1,7})")
+# --- Normalisation patterns ---
+# Accepts the following formats and always outputs "LOT/PLAN":
+#   "3RP67254"      -> "3/RP67254"
+#   "3/RP67254"     -> "3/RP67254"
+#   "3 RP67254"     -> "3/RP67254"
+#   "L2 RP53435"    -> "2/RP53435"
+#   "Lot 2 RP53435" -> "2/RP53435"
 
-def _expand_range(lot: str) -> List[str]:
-    if '-' in lot:
-        a, b = lot.split('-', 1)
-        if a.isdigit() and b.isdigit():
-            return [str(i) for i in range(int(a), int(b) + 1)]
-    return [lot]
+LP_SLASH = re.compile(
+    r"^\s*([A-Za-z0-9]+)\s*/\s*([A-Za-z]{1,4}\s*\d{1,7})\s*$",
+    re.IGNORECASE,
+)
+LP_SPACE = re.compile(
+    r"^\s*(?:L(?:OT)?\s*)?([A-Za-z0-9]+)\s+([A-Za-z]{1,4}\s*\d{1,7})\s*$",
+    re.IGNORECASE,
+)
+# "tight" form like 3RP67254 -> split between lot (leading digits/letters) and plan (alpha+digits)
+LP_TIGHT = re.compile(
+    r"^\s*(?:L(?:OT)?\s*)?([0-9A-Za-z]+?)([A-Za-z]{1,4}\s*\d{1,7})\s*$",
+    re.IGNORECASE,
+)
+
 
 def normalize_lotplan(text: str) -> List[str]:
-    text = text.strip().replace('/', ' ').replace(',', ' ')
-    parts = [p for p in re.split(r'[&]|\band\b', text, flags=re.IGNORECASE) if p.strip()]
-    results: List[str] = []
-    for part in parts:
-        m = LOTPLAN_RX.search(part)
-        if not m: continue
-        lot_raw = (m.group('lot') or '').upper().replace('L', '').strip()
-        section = (m.group('section') or '').upper().strip()
-        plan_raw = (m.group('plan') or '').upper().replace(' ', '').strip()
-        for lot in _expand_range(lot_raw):
-            results.append(f"{lot}/{section}/{plan_raw}" if section else f"{lot}//{plan_raw}")
-    out, seen = [], set()
-    for r in results:
-        if r not in seen:
-            out.append(r); seen.add(r)
-    return out
+    """
+    Return a single-element list with 'LOT/PLAN' or [] if cannot parse.
+    Never inserts a 'section'; we stick to LOT/PLAN because your cadastre exposes `lotplan`.
+    """
+    s = (text or "").strip()
+
+    # 1) explicit slash form
+    m = LP_SLASH.match(s)
+    if m:
+        lot = m.group(1).upper().lstrip("L")         # allow "L2" inputs
+        plan = m.group(2).upper().replace(" ", "")   # remove spaces inside plan code
+        return [f"{lot}/{plan}"]
+
+    # 2) space-separated "3 RP67254", "Lot 2 RP53435"
+    m = LP_SPACE.match(s)
+    if m:
+        lot = m.group(1).upper().lstrip("L")
+        plan = m.group(2).upper().replace(" ", "")
+        return [f"{lot}/{plan}"]
+
+    # 3) tight form "3RP67254"
+    m = LP_TIGHT.match(s)
+    if m:
+        lot = m.group(1).upper().lstrip("L")
+        plan = m.group(2).upper().replace(" ", "")
+        return [f"{lot}/{plan}"]
+
+    # 4) fallback: if already looks like LOT/PLAN but with stray spaces
+    if "/" in s:
+        lot, plan = [p.strip().upper() for p in s.split("/", 1)]
+        return [f"{lot}/{plan.replace(' ', '')}"]
+
+    return []
+
 
 async def resolve_parcels(lotplans: List[str]) -> Dict[str, Any]:
+    """
+    Given a list like ["3/RP67254"], query the cadastre:
+      1) Try equality on CADASTRE_LOTPLAN_FIELD (if provided), e.g. UPPER(lotplan)='3/RP67254'
+      2) Fallback to CADASTRE_LOT_FIELD + CADASTRE_PLAN_FIELD (ignoring spaces in plan)
+    Returns {'parcel': <GeoJSON Polygon/MultiPolygon> | None, 'matched': [ ... ] }
+    """
     if not settings.CADASTRE_URL:
         raise RuntimeError("CADASTRE_URL not set. Provide a QLD cadastre layer endpoint via env.")
+
     lot_field = settings.CADASTRE_LOT_FIELD
     plan_field = settings.CADASTRE_PLAN_FIELD
+    lotplan_field = settings.CADASTRE_LOTPLAN_FIELD  # may be None
 
-    geoms, matched = [], []
+    geoms = []
+    matched: List[Dict[str, str]] = []
+
     for lp in lotplans:
-        lot, section, plan = lp.split('/')
-        plan_nospace = plan.replace(' ', '')
-        candidates = [plan, plan_nospace]
+        # Expect "LOT/PLAN"
+        if "/" not in lp:
+            continue
+
+        lot, plan = lp.split("/", 1)
+        lot_u = lot.upper().strip()
+        plan_u = plan.upper().replace(" ", "")
+
         feats = []
-        for p in candidates:
+
+        # --- A) Prefer querying the combined lotplan field (exact uppercase match)
+        if lotplan_field:
+            where_lp = f"UPPER({lotplan_field}) = '{lot_u}/{plan_u}'"
+            try:
+                feats = await fetch_all_features(
+                    settings.CADASTRE_URL,
+                    {
+                        "where": where_lp,
+                        "outFields": f"{lot_field},{plan_field},{lotplan_field}",
+                        "returnGeometry": "true",
+                        "outSR": 4326,
+                    },
+                )
+            except Exception:
+                feats = []
+
+        # --- B) Fallback to lot + plan (ignore possible spaces in stored plan)
+        if not feats:
             where_candidates = [
-                f"UPPER({lot_field}) = '{lot.upper()}' AND REPLACE(UPPER({plan_field}), ' ', '') = '{p}'",
-                f"UPPER({lot_field}) = '{lot.upper()}' AND UPPER({plan_field}) = '{p}'",
+                # If the service supports REPLACE in SQL:
+                f"UPPER({lot_field}) = '{lot_u}' AND REPLACE(UPPER({plan_field}), ' ', '') = '{plan_u}'",
+                # Plain equality (works if plan is already stored without spaces):
+                f"UPPER({lot_field}) = '{lot_u}' AND UPPER({plan_field}) = '{plan_u}'",
             ]
             for w in where_candidates:
                 try:
-                    feats = await fetch_all_features(settings.CADASTRE_URL, {
-                        'where': w,
-                        'outFields': f"{lot_field},{plan_field}",
-                        'returnGeometry': 'true',
-                        'outSR': 4326
-                    })
-                    if feats: break
-                except Exception: continue
-            if feats: break
+                    feats = await fetch_all_features(
+                        settings.CADASTRE_URL,
+                        {
+                            "where": w,
+                            "outFields": f"{lot_field},{plan_field}"
+                            + (f",{lotplan_field}" if lotplan_field else ""),
+                            "returnGeometry": "true",
+                            "outSR": 4326,
+                        },
+                    )
+                    if feats:
+                        break
+                except Exception:
+                    continue
 
-        from shapely.geometry import Polygon
+        # --- Convert ESRI rings to shapely, collect attributes
         for f in feats:
-            geom_esri = f.get('geometry') or {}
-            rings = geom_esri.get('rings') or []
-            if not rings: continue
+            geom_esri = f.get("geometry") or {}
+            rings = geom_esri.get("rings") or []
+            if not rings:
+                continue
+
             poly = Polygon(rings[0], holes=rings[1:]) if rings else None
-            if poly and not poly.is_valid: poly = poly.buffer(0)
+            if poly and not poly.is_valid:
+                poly = poly.buffer(0)
             if poly:
                 geoms.append(poly)
-                attrs = f.get('attributes', {})
-                matched.append({'lot': str(attrs.get(lot_field, lot)), 'plan': str(attrs.get(plan_field, plan))})
+                attrs = f.get("attributes", {})
+                matched.append(
+                    {
+                        "lot": str(attrs.get(lot_field, lot_u)),
+                        "plan": str(attrs.get(plan_field, plan_u)),
+                        "lotplan": f"{lot_u}/{plan_u}",
+                    }
+                )
 
     if not geoms:
-        return {'parcel': None, 'matched': []}
-    from shapely.ops import unary_union
+        return {"parcel": None, "matched": []}
+
     unioned = unary_union(geoms)
-    return {'parcel': mapping(unioned), 'matched': matched}
+    return {"parcel": mapping(unioned), "matched": matched}
