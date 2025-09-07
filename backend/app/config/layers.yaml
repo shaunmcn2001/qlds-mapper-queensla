@@ -3,16 +3,16 @@ services:
     label: "Land Types"
     url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/LandTypes/MapServer/1"
     fields:
-      include: ["LT_NAME","LT_CODE","LANDSYS","REGION","SOURCE"]
+      include: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","AREA_HA","OBJECTID"]
       aliases:
-        LT_NAME: "Land Type"
-        LT_CODE: "Code"
-        LANDSYS: "Land System"
-        REGION: "Region"
-        SOURCE: "Source"
-    name_template: "${LT_NAME} (${LT_CODE})"
+        LT_NAME_1: "Land Type"
+        LT_CODE_1: "Code"
+        Q_REG_NAME: "Bioregion"
+        Q_REG: "Bioregion code"
+        AREA_HA: "Area (ha)"
+    name_template: "${LT_NAME_1} (${LT_CODE_1})"
     style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.35, color: "#1f77b4" }
-    popup: { order: ["LT_NAME","LT_CODE","LANDSYS","REGION","SOURCE"], hide_null: true }
+    popup: { order: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","AREA_HA"], hide_null: true }
 
   - id: veg_mgmt
     label: "Vegetation Management"
