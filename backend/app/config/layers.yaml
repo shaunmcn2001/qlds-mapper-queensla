@@ -3,28 +3,27 @@ services:
     label: "Land Types"
     url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/LandTypes/MapServer/1"
     fields:
-      include: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","AREA_HA","OBJECTID"]
+      include: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","Area_ha","OBJECTID"]
       aliases:
         LT_NAME_1: "Land Type"
         LT_CODE_1: "Code"
         Q_REG_NAME: "Bioregion"
         Q_REG: "Bioregion code"
-        AREA_HA: "Area (ha)"
+        Area_ha: "Area (ha)"
     name_template: "${LT_NAME_1} (${LT_CODE_1})"
     style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.35, color: "#1f77b4" }
-    popup: { order: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","AREA_HA"], hide_null: true }
+    popup: { order: ["LT_NAME_1","LT_CODE_1","Q_REG_NAME","Q_REG","Area_ha"], hide_null: true }
 
   - id: veg_mgmt
-    label: "Vegetation Management"
-    url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Biota/VegetationManagement/MapServer/101"
+    label: "Vegetation Management (RVM - all)"
+    url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Biota/VegetationManagement/MapServer/109"
     fields:
-      include: ["VMSTATUS","RE","RE_DESC","BIOTA_CODE","BIOTA_NAME"]
+      include: ["rvm_cat","map_no","version","objectid"]
       aliases:
-        VMSTATUS: "VM Status"
-        RE: "Regional Ecosystem"
-        RE_DESC: "RE Description"
-        BIOTA_CODE: "Biota Code"
-        BIOTA_NAME: "Biota Name"
-    name_template: "${VMSTATUS} - ${RE}"
+        rvm_cat: "RVM category"
+        map_no: "Map number"
+        version: "Version"
+        objectid: "OBJECTID"
+    name_template: "RVM ${rvm_cat}"
     style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.30, color: "#2ca02c" }
-    popup: { order: ["VMSTATUS","RE","RE_DESC","BIOTA_CODE","BIOTA_NAME"], hide_null: true }
+    popup: { order: ["rvm_cat","map_no","version"], hide_null: true }
