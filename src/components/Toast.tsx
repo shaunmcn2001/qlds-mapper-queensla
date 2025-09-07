@@ -16,8 +16,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     push: (message, type = "info") => {
       const id = Math.random().toString(36).slice(2);
       setItems(prev => [...prev, { id, message, type }]);
-      // auto-remove after 4s
-      setTimeout(() => setItems(prev => prev.filter(t => t.id != id)), 4000);
+      setTimeout(() => setItems(prev => prev.filter(t => t.id !== id)), 4000);
     }
   }), []);
 
