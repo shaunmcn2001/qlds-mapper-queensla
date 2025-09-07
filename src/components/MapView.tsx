@@ -20,33 +20,47 @@ interface MapViewProps {
 
 export function MapView({ parcels, features, selectedLayers }: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null);
-  const containerId = 'map-container';
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const layerGroupsRef = useRef<L.LayerGroup[]>([]);
   const layers = getLayers();
   
+  // Initialize map effect
   useEffect(() => {
-    if (!mapRef.current) {
-      // Initialize map
-      const map = L.map(containerId, {
-        center: [-27.4705, 153.0245],
-        zoom: 15,
-        zoomControl: true,
-        attributionControl: true
-      });
+    if (!containerRef.current || mapRef.current) return;
+    
+    // Initialize map
+    const map = L.map(containerRef.current, {
+      center: [-27.4705, 153.0245],
+      zoom: 10,
+      zoomControl: true,
+      attributionControl: true
+    });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
 
-      mapRef.current = map;
-    }
-
+    mapRef.current = map;
+    
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
+  
+  // Update layers effect
+  useEffect(() => {
+    if (!mapRef.current) return;
+    
     const map = mapRef.current;
     
-    // Clear existing layers (except base tile layer)
-    map.eachLayer((layer) => {
-      if (layer instanceof L.TileLayer) return;
-      map.removeLayer(layer);
+    // Clear existing layer groups
+    layerGroupsRef.current.forEach(group => {
+      map.removeLayer(group);
     });
+    layerGroupsRef.current = [];
 
     // Add parcel boundaries
     if (parcels.length > 0) {
@@ -73,6 +87,7 @@ export function MapView({ parcels, features, selectedLayers }: MapViewProps) {
       });
       
       parcelGroup.addTo(map);
+      layerGroupsRef.current.push(parcelGroup);
       
       // Fit map to parcels
       const bounds = L.latLngBounds(
@@ -113,21 +128,14 @@ export function MapView({ parcels, features, selectedLayers }: MapViewProps) {
       });
       
       featureGroup.addTo(map);
+      layerGroupsRef.current.push(featureGroup);
     });
-
-    return () => {
-      // Cleanup on unmount
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, [parcels, features, selectedLayers]);
+  }, [parcels, features, selectedLayers, layers]);
 
   return (
     <Card className="overflow-hidden">
       <div 
-        id={containerId} 
+        ref={containerRef}
         className="h-96 w-full"
         style={{ minHeight: '400px' }}
       />
