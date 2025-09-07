@@ -67,12 +67,6 @@ def normalize_lotplan(text: str) -> List[str]:
 
 
 async def resolve_parcels(lotplans: List[str]) -> Dict[str, Any]:
-    """
-    Given a list like ["3/RP67254"], query the cadastre:
-      1) Try equality on CADASTRE_LOTPLAN_FIELD (if provided), e.g. UPPER(lotplan)='3/RP67254'
-      2) Fallback to CADASTRE_LOT_FIELD + CADASTRE_PLAN_FIELD (ignoring spaces in plan)
-    Returns {'parcel': <GeoJSON Polygon/MultiPolygon> | None, 'matched': [ ... ] }
-    """
     if not settings.CADASTRE_URL:
         raise RuntimeError("CADASTRE_URL not set. Provide a QLD cadastre layer endpoint via env.")
 
@@ -87,74 +81,63 @@ async def resolve_parcels(lotplans: List[str]) -> Dict[str, Any]:
         # Expect "LOT/PLAN"
         if "/" not in lp:
             continue
-
         lot, plan = lp.split("/", 1)
         lot_u = lot.upper().strip()
         plan_u = plan.upper().replace(" ", "")
 
         feats = []
 
-        # --- A) Prefer querying the combined lotplan field (exact uppercase match)
+        # A) Try LOTPLAN field first (exact uppercase match)
         if lotplan_field:
             where_lp = f"UPPER({lotplan_field}) = '{lot_u}/{plan_u}'"
             try:
-                feats = await fetch_all_features(
-                    settings.CADASTRE_URL,
-                    {
-                        "where": where_lp,
-                        "outFields": f"{lot_field},{plan_field},{lotplan_field}",
-                        "returnGeometry": "true",
-                        "outSR": 4326,
-                    },
-                )
+                feats = await fetch_all_features(settings.CADASTRE_URL, {
+                    "where": where_lp,
+                    "outFields": f"{lot_field},{plan_field},{lotplan_field}",
+                    "returnGeometry": "true",
+                    "outSR": 4326
+                })
             except Exception:
                 feats = []
 
-        # --- B) Fallback to lot + plan (ignore possible spaces in stored plan)
+        # B) Fallback to LOT + PLAN (ignore optional spaces in PLAN)
         if not feats:
             where_candidates = [
-                # If the service supports REPLACE in SQL:
+                # If service supports REPLACE
                 f"UPPER({lot_field}) = '{lot_u}' AND REPLACE(UPPER({plan_field}), ' ', '') = '{plan_u}'",
-                # Plain equality (works if plan is already stored without spaces):
+                # Plain equality (if values are stored without spaces)
                 f"UPPER({lot_field}) = '{lot_u}' AND UPPER({plan_field}) = '{plan_u}'",
             ]
             for w in where_candidates:
                 try:
-                    feats = await fetch_all_features(
-                        settings.CADASTRE_URL,
-                        {
-                            "where": w,
-                            "outFields": f"{lot_field},{plan_field}"
-                            + (f",{lotplan_field}" if lotplan_field else ""),
-                            "returnGeometry": "true",
-                            "outSR": 4326,
-                        },
-                    )
+                    feats = await fetch_all_features(settings.CADASTRE_URL, {
+                        "where": w,
+                        "outFields": f"{lot_field},{plan_field}" + (f",{lotplan_field}" if lotplan_field else ""),
+                        "returnGeometry": "true",
+                        "outSR": 4326
+                    })
                     if feats:
                         break
                 except Exception:
                     continue
 
-        # --- Convert ESRI rings to shapely, collect attributes
+        # Build geometry
         for f in feats:
             geom_esri = f.get("geometry") or {}
             rings = geom_esri.get("rings") or []
             if not rings:
                 continue
-
             poly = Polygon(rings[0], holes=rings[1:]) if rings else None
             if poly and not poly.is_valid:
                 poly = poly.buffer(0)
             if poly:
                 geoms.append(poly)
                 attrs = f.get("attributes", {})
-                matched.append(
-                    {
-                        "lot": str(attrs.get(lot_field, lot_u)),
-                        "plan": str(attrs.get(plan_field, plan_u)),
-                        "lotplan": f"{lot_u}/{plan_u}",
-                    }
-                )
+                matched.append({
+                    "lot": str(attrs.get(lot_field, lot_u)),
+                    "plan": str(attrs.get(plan_field, plan_u)),
+                    "lotplan": f"{lot_u}/{plan_u}",
+                })
 
     if not geoms:
         return {"parcel": None, "matched": []}
