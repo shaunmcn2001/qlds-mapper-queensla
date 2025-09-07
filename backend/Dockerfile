@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Because the build context is the backend/ folder, use paths relative to it:
-COPY requirements.txt /app/requirements.txt
+# ✅ sources are relative to repo root
+COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
-COPY app /app/app
+# ✅ copy your backend code into the image
+COPY backend/app /app/app
 
 ENV PORT=8000
 EXPOSE 8000
