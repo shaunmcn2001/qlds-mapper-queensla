@@ -164,39 +164,71 @@ async def intersect(body: IntersectRequest):
             }
 
             # 1) Polygon intersect
+                        # 1) Polygon intersect (try configured outFields; fallback to '*')
             features = []
+            query_errors = []
+
+            def _common(ofields: str):
+                return {
+                    "outFields": ofields,
+                    "returnGeometry": "true",
+                    "outSR": 4326,
+                    "returnExceededLimitFeatures": "true",
+                    "maxRecordCountFactor": 2,
+                }
+
+            # Try with configured include list first
+            ofields_conf = ",".join(include_fields) if include_fields else "*"
+
+            # --- First attempt: polygon + configured outFields
             try:
                 feats = await fetch_all_features(
                     url,
                     {
-                        **common,
+                        **_common(ofields_conf),
                         "geometry": esri_poly,
                         "geometryType": "esriGeometryPolygon",
                         "spatialRel": "esriSpatialRelIntersects",
                     },
                 )
                 features = feats
-            except Exception as e_poly:
-                # 2) Envelope fallback
+            except Exception as e_poly_conf:
+                query_errors.append(f"poly/conf: {e_poly_conf}")
+                # --- Second attempt: polygon + outFields='*'
                 try:
                     feats = await fetch_all_features(
                         url,
                         {
-                            **common,
-                            "geometry": esri_env,
-                            "geometryType": "esriGeometryEnvelope",
+                            **_common("*"),
+                            "geometry": esri_poly,
+                            "geometryType": "esriGeometryPolygon",
                             "spatialRel": "esriSpatialRelIntersects",
                         },
                     )
                     features = feats
-                except Exception as e_env:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=(
-                            f"ArcGIS query failed for layer '{lid}'. "
-                            f"Polygon error: {e_poly}. Envelope error: {e_env}"
-                        ),
-                    )
+                except Exception as e_poly_star:
+                    query_errors.append(f"poly/*: {e_poly_star}")
+                    # --- Fallback: envelope + outFields='*'
+                    try:
+                        feats = await fetch_all_features(
+                            url,
+                            {
+                                **_common("*"),
+                                "geometry": esri_env,
+                                "geometryType": "esriGeometryEnvelope",
+                                "spatialRel": "esriSpatialRelIntersects",
+                            },
+                        )
+                        features = feats
+                    except Exception as e_env_star:
+                        query_errors.append(f"env/*: {e_env_star}")
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                f"ArcGIS query failed for layer '{lid}'. Attempts: "
+                                + "; ".join(query_errors)
+                            ),
+                        )
 
             # Esri → GeoJSON (no Shapely)
             out_feats = []
