@@ -1,6 +1,6 @@
 # QLD Parcel GIS Explorer
 
-A specialized GIS tool for resolving Queensland Lot/Plan parcels and performing spatial intersections with configurable ArcGIS layers. Built as a demonstration of modern web-based GIS workflow tools.
+A specialized GIS tool for resolving Queensland Lot/Plan parcels and performing spatial intersections with configurable ArcGIS layers. Built as a demonstration of modern web-based GIS workflow tools. 
 
 ## Features
 
