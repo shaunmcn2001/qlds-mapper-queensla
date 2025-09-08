@@ -5,13 +5,10 @@ type Ctx = { push: (msg: string, type?: Toast["type"]) => void };
 
 const ToastCtx = createContext<Ctx>({ push: () => {} });
 
-export function useToast() {
-  return useContext(ToastCtx);
-}
+export function useToast() { return useContext(ToastCtx); }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
-
   const api = useMemo<Ctx>(() => ({
     push: (message, type = "info") => {
       const id = Math.random().toString(36).slice(2);

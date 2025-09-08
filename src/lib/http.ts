@@ -1,9 +1,8 @@
-// src/lib/http.ts
 export async function fetchWithTimeout(
   url: string,
   opts: RequestInit & { timeoutMs?: number } = {}
 ) {
-  const { timeoutMs = 35000, ...rest } = opts;
+  const { timeoutMs = 40000, ...rest } = opts;
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -25,7 +24,7 @@ export async function withRetry<T>(
     } catch (e) {
       lastErr = e;
       if (i === retries) break;
-      const delay = baseDelay * Math.pow(2, i);
+      const delay = baseDelay * (2 ** i);
       await new Promise(r => setTimeout(r, delay));
     }
   }

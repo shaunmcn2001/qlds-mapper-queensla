@@ -1,6 +1,7 @@
 // Real backend integration for GIS helpers
 
 import type { ParcelInput, LayerConfig, Parcel, Feature } from '@/types';
+import { fetchWithTimeout, withRetry } from '@/lib/http';
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
@@ -13,13 +14,7 @@ function toParcel(lotPlan: string, geojson: any): Parcel {
   const ring = geojson?.coordinates?.[0] || [];
   for (const [x, y] of ring) { cx += x; cy += y; n++; }
   const centroid: [number, number] = n ? [cx / n, cy / n] : [0, 0];
-  return {
-    id: lotPlan,
-    lotPlan,
-    geometry: geojson,
-    area: 0,
-    centroid,
-  };
+  return { id: lotPlan, lotPlan, geometry: geojson, area: 0, centroid };
 }
 
 export function normalizeLotPlan(input: string): string[] {
@@ -37,11 +32,14 @@ export function normalizeLotPlan(input: string): string[] {
 export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
   const parcels: Parcel[] = [];
   for (const lp of normalized) {
-    const r = await fetch(`${API_BASE}/parcel/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lotplan: lp }),
-    });
+    const r = await withRetry(() =>
+      fetchWithTimeout(`${API_BASE}/parcel/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lotplan: lp }),
+        timeoutMs: 40000,
+      })
+    );
     assertOk(r);
     const data = await r.json();
     if (data?.parcel) parcels.push(toParcel(lp, data.parcel));
@@ -50,11 +48,13 @@ export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
 }
 
 export async function getLayers(): Promise<LayerConfig[]> {
-  const r = await fetch(`${API_BASE}/layers`);
+  const r = await withRetry(() =>
+    fetchWithTimeout(`${API_BASE}/layers`, { timeoutMs: 20000 })
+  );
   assertOk(r);
   const json = await r.json();
-  const layers = (json?.layers || []) as any[];
-  return layers.map(l => ({
+  const arr = (json?.layers || []) as any[];
+  return arr.map((l: any) => ({
     id: l.id,
     label: l.label || l.id,
     url: l.url,
@@ -78,17 +78,20 @@ export async function getLayers(): Promise<LayerConfig[]> {
 }
 
 export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promise<Record<string, Feature[]>> {
-  const r = await fetch(`${API_BASE}/intersect`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parcel: parcel.geometry, layer_ids: layerIds })
-  });
+  const r = await withRetry(() =>
+    fetchWithTimeout(`${API_BASE}/intersect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parcel: parcel.geometry, layer_ids: layerIds }),
+      timeoutMs: 45000,
+    })
+  );
   assertOk(r);
   const data = await r.json();
   const out: Record<string, Feature[]> = {};
-  for (const layer of data.layers || []) {
+  for (const layer of (data.layers || [])) {
     const feats: Feature[] = [];
-    for (const f of layer.features || []) {
+    for (const f of (layer.features || [])) {
       feats.push({
         id: String(f.attrs?.OBJECTID ?? crypto.randomUUID()),
         geometry: f.geometry,
@@ -109,11 +112,14 @@ export async function exportData(parcel: Parcel, features: Record<string, Featur
     features: feats.map(f => ({ geometry: f.geometry, attrs: f.properties, name: f.displayName })),
     style: {},
   }));
-  const r = await fetch(`${API_BASE}/export/kml`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parcel: parcel.geometry, layers }),
-  });
+  const r = await withRetry(() =>
+    fetchWithTimeout(`${API_BASE}/export/kml`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parcel: parcel.geometry, layers }),
+      timeoutMs: 45000,
+    })
+  );
   assertOk(r);
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);

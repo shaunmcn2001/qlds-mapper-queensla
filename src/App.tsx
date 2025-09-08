@@ -17,12 +17,11 @@ export default function App() {
   const [lotplan, setLotplan] = useState("3/RP67254");
 
   const [layers, setLayers] = useState<LayerMeta[]>([]);
-  const [selected, setSelected] = useState<string[]>(["landtypes", "veg_mgmt"]);
+  const [selected, setSelected] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // important: these drive map + export
   const [parcels, setParcels] = useState<any[]>([]);
   const [featuresByLayer, setFeaturesByLayer] = useState<Record<string, any[]>>({});
 
@@ -30,7 +29,11 @@ export default function App() {
 
   useEffect(() => {
     getLayers()
-      .then((r) => setLayers(r))
+      .then((arr) => {
+        setLayers(arr);
+        // Preselect first two layers if available (so list isn't empty)
+        setSelected(arr.slice(0, 2).map(l => l.id));
+      })
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -48,6 +51,12 @@ export default function App() {
       }
       setParcels(resolved);
       toast.push("Parcel resolved", "success");
+
+      if (selected.length === 0) {
+        toast.push("No layers selected — showing parcel only", "info");
+        setLoading(false);
+        return;
+      }
 
       toast.push("Intersecting layers…");
       const inter = await intersectLayers(resolved[0], selected);
@@ -80,7 +89,7 @@ export default function App() {
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">QLDS Mapper</h1>
         <p className="text-slate-600">
-          Search a Queensland Lot/Plan, select datasets, intersect, and export KML/KMZ.
+          Enter a Queensland Lot/Plan, pick datasets, intersect, and export KMZ.
         </p>
       </header>
 
@@ -114,7 +123,7 @@ export default function App() {
             <label className="block text-sm font-medium">Datasets</label>
             <div className="max-h-60 overflow-auto rounded-lg border bg-white p-3 shadow-sm">
               {layers.length === 0 ? (
-                <p className="text-sm text-slate-500">Loading layers…</p>
+                <p className="text-sm text-slate-500">No layers available. Check backend /layers and CORS.</p>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {layers.map((l) => (
