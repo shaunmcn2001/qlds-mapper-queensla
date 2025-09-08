@@ -1,5 +1,16 @@
 services:
   - type: web
+    name: lotplan-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE
+        value: https://lotplan-backend.onrender.com
+    
+  - type: web
     name: lotplan-backend
     env: docker
     rootDirectory: backend
@@ -7,7 +18,7 @@ services:
     autoDeploy: true
     envVars:
       - key: CORS_ORIGINS
-        value: http://localhost:5173
+        value: https://lotplan-frontend.onrender.com
       - key: HTTP_TIMEOUT_SECONDS
         value: "60"
       - key: ARCGIS_CONCURRENCY
