@@ -5,6 +5,7 @@ import { defineConfig, PluginOption } from "vite";
 import sparkPlugin from "@github/spark/spark-vite-plugin";
 import createIconImportProxy from "@github/spark/vitePhosphorIconProxyPlugin";
 import { resolve } from 'path'
+import { fileURLToPath, URL } from 'node:url'
 
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
 
