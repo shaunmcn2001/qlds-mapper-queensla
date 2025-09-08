@@ -20,6 +20,6 @@ export default defineConfig({
       "@": resolve(projectRoot, "src"),
     },
   },
-  // IMPORTANT: must be '/<repo>/' for GitHub Project Pages
-  base: "/qlds-mapper-queensla/",
+  // Base path for deployment - "/" for Render, "/<repo>/" for GitHub Pages  
+  base: "/",
 });
