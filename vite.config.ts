@@ -21,5 +21,6 @@ export default defineConfig({
     },
   },
   // IMPORTANT: must be '/<repo>/' for GitHub Project Pages
+  // Ensures proper deployment to https://shaunmcn2001.github.io/qlds-mapper-queensla/
   base: "/qlds-mapper-queensla/",
 });
