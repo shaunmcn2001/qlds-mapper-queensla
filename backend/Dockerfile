@@ -19,4 +19,5 @@ COPY backend/app /app/app
 
 ENV PORT=8000
 EXPOSE 8000
-CMD ["bash", "-lc", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+ENV HTTP_TIMEOUT_SECONDS=120
+CMD sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --timeout-keep-alive ${HTTP_TIMEOUT_SECONDS}'
