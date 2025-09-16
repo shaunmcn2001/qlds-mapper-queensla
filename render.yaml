@@ -1,17 +1,25 @@
 schemaVersion: 1
 services:
-  - type: static_site 
+  # --- Frontend as a Node Web Service (build + serve dist) ---
+  - type: web
     name: lotplan-frontend
+    env: node
     rootDirectory: .
-    buildCommand: npm install && npm run build
-    publishPath: dist
+    plan: free
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npx serve -s dist -l $PORT
     envVars:
       - key: VITE_API_BASE
         fromService:
           type: web
           name: lotplan-backend
           property: url
+      # (optional) lock Node version if you want
+      # - key: RENDER_NODE_VERSION
+      #   value: 20
 
+  # --- Backend (unchanged) ---
   - type: web
     name: lotplan-backend
     env: docker
