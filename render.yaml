@@ -1,6 +1,6 @@
 schemaVersion: 1
 services:
-  - type: static site 
+  - type: static_site 
     name: lotplan-frontend
     rootDirectory: .
     buildCommand: npm install && npm run build
