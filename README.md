@@ -65,6 +65,17 @@ Key dependencies:
 - `@phosphor-icons/react` for consistent iconography
 - Tailwind CSS for styling with custom GIS-appropriate color scheme
 
+## Deployment
+
+The repository includes a [`render.yaml`](render.yaml) that provisions both the FastAPI backend and a Render Static Site for the Vite frontend.
+
+1. **Build the frontend** – Render runs `npm install && npm run build`, producing the production-ready assets in `dist/`.
+2. **Static site** – The static service publishes the `dist/` directory and exposes the frontend at `https://lotplan-frontend.onrender.com` by default.
+3. **API base URL** – During the build, the `VITE_API_BASE` environment variable is injected with the backend’s public URL so the frontend calls the deployed API instead of `localhost`.
+4. **CORS** – The backend’s `CORS_ORIGINS` includes both `http://localhost:5173` (for local development) and the Render static site origin.
+
+For alternative hosting targets (e.g. GitHub Pages), set the `VITE_BASE_PATH` environment variable before running `npm run build` to control the Vite `base` path.
+
 ## Production Considerations
 
 In a production environment, this application would integrate with:
