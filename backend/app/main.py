@@ -1,5 +1,7 @@
 # backend/app/main.py
 
+import os
+
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -7,7 +9,6 @@ import yaml
 from typing import List, Dict, Any
 
 from shapely.geometry import mapping  # only used for the parcel outline in /export
-from .core.settings import settings
 from .core.logging import get_logger
 
 from .services.arcgis_client import fetch_all_features
@@ -36,10 +37,14 @@ app = FastAPI(
 # --------------------------
 # CORS
 # --------------------------
-origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+_cors_origins = [o.strip() for o in _cors_origins if o.strip()]
+if not _cors_origins:
+    _cors_origins = ["http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
