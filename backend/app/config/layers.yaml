@@ -27,3 +27,18 @@ services:
     name_template: "RVM ${rvm_cat}"
     style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.30, color: "#2ca02c" }
     popup: { order: ["rvm_cat","map_no","version"], hide_null: true }
+
+  - id: flood_events
+    label: "Flood Mapping (Defined Flood Events)"
+    url: "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/DisasterManagement/DefinedFloodEvents/MapServer/0"
+    fields:
+      include: ["EVENT_NAME","EVENT_YEAR","SOURCE","GAUGE_NAME","AREA_HA","OBJECTID"]
+      aliases:
+        EVENT_NAME: "Event name"
+        EVENT_YEAR: "Year"
+        SOURCE: "Data source"
+        GAUGE_NAME: "Gauge"
+        AREA_HA: "Area (ha)"
+    name_template: "${EVENT_NAME} (${EVENT_YEAR})"
+    style: { line_width: 1, line_opacity: 0.9, poly_opacity: 0.25, color: "#ff7f0e" }
+    popup: { order: ["EVENT_NAME","EVENT_YEAR","SOURCE","GAUGE_NAME","AREA_HA"], hide_null: true }
