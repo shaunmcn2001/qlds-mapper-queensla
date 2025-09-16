@@ -7,6 +7,7 @@ import createIconImportProxy from "@github/spark/vitePhosphorIconProxyPlugin";
 import { resolve } from "path";
 
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname;
+const basePath = process.env.VITE_BASE_PATH ?? "/";
 
 export default defineConfig({
   plugins: [
@@ -20,7 +21,7 @@ export default defineConfig({
       "@": resolve(projectRoot, "src"),
     },
   },
-  // IMPORTANT: must be '/<repo>/' for GitHub Project Pages
-  // Ensures proper deployment to https://shaunmcn2001.github.io/qlds-mapper-queensla/
-  base: "/qlds-mapper-queensla/",
+  // Allow the deploy target to control the base path. Render deployments serve the
+  // site from '/', while GitHub Pages can override via VITE_BASE_PATH.
+  base: basePath,
 });
