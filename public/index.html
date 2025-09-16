@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lot/Plan Parcel Explorer</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f4f4f5;
+        color: #1f2937;
+      }
+
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 3rem;
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: #111827;
+      }
+
+      form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+        margin-bottom: 0.5rem;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+
+      input[type="text"] {
+        margin-top: 0.35rem;
+        padding: 0.55rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5f5;
+        font-size: 1rem;
+        min-width: 240px;
+      }
+
+      button {
+        cursor: pointer;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.65rem 1.2rem;
+        font-size: 1rem;
+        font-weight: 600;
+        transition: background 0.2s ease;
+      }
+
+      button[disabled] {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      button:not([disabled]):hover {
+        background: #1d4ed8;
+      }
+
+      .status {
+        min-height: 1.25rem;
+        margin: 0.5rem 0 1rem;
+        color: #374151;
+        font-size: 0.95rem;
+      }
+
+      section {
+        margin-top: 2rem;
+        background: #fff;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+      }
+
+      section > h2 {
+        margin-top: 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        font-size: 0.95rem;
+      }
+
+      th,
+      td {
+        border: 1px solid #e5e7eb;
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+      }
+
+      th {
+        background: #f9fafb;
+        font-weight: 600;
+      }
+
+      pre {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        overflow: auto;
+      }
+
+      .layer-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        margin: 1rem 0 1.5rem;
+      }
+
+      .layer-option {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: #eef2ff;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        font-weight: 500;
+      }
+
+      .layer-option input[type="checkbox"] {
+        width: 1.1rem;
+        height: 1.1rem;
+      }
+
+      .intersection-layer {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1rem;
+        margin-top: 1rem;
+      }
+
+      .intersection-layer:first-of-type {
+        border-top: none;
+        padding-top: 0;
+        margin-top: 0;
+      }
+
+      details.feature {
+        margin: 0.75rem 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.65rem;
+        padding: 0.75rem 1rem;
+        background: #f9fafb;
+      }
+
+      details.feature summary {
+        cursor: pointer;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
+      table.attrs {
+        margin: 0.5rem 0 0;
+        background: #fff;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #0f172a;
+          color: #e2e8f0;
+        }
+
+        section {
+          background: #111827;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.6);
+        }
+
+        input[type="text"] {
+          background: #111827;
+          color: inherit;
+          border: 1px solid #1f2937;
+        }
+
+        button {
+          background: #2563eb;
+        }
+
+        button:not([disabled]):hover {
+          background: #3b82f6;
+        }
+
+        table,
+        th,
+        td {
+          border-color: #1f2937;
+        }
+
+        th {
+          background: #1f2937;
+        }
+
+        .layer-option {
+          background: #1e293b;
+        }
+
+        details.feature {
+          background: #1f2937;
+          border-color: #1f2937;
+        }
+
+        table.attrs {
+          background: #111827;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Lot/Plan Parcel Explorer</h1>
+      <p>
+        Enter a Queensland Lot/Plan value to resolve its parcel geometry, inspect the
+        matched cadastre attributes, and optionally intersect the parcel with
+        available spatial layers.
+      </p>
+      <form id="parcel-form">
+        <label for="lotPlan">
+          Lot/Plan
+          <input id="lotPlan" type="text" placeholder="e.g. 3/RP67254" required />
+        </label>
+        <button type="submit">Resolve Parcel</button>
+      </form>
+      <p id="form-status" class="status" role="status"></p>
+
+      <section id="parcel-section" hidden>
+        <h2>Parcel Result</h2>
+        <div id="parcel-matched"></div>
+        <details>
+          <summary>Parcel Geometry (GeoJSON)</summary>
+          <pre id="parcel-geojson"></pre>
+        </details>
+      </section>
+
+      <section id="layers-section">
+        <h2>Layer Intersections</h2>
+        <p id="layers-status" class="status"></p>
+        <div id="layer-options" class="layer-list"></div>
+        <button id="intersect-button" type="button" disabled>
+          Intersect Selected Layers
+        </button>
+      </section>
+
+      <section id="intersections-section" hidden>
+        <h2>Intersections</h2>
+        <div id="intersections-output"></div>
+      </section>
+    </main>
+
+    <script>
+      (() => {
+        const API_BASE = "https://qlds-mapper-queensla.onrender.com";
+        const form = document.getElementById("parcel-form");
+        const lotPlanInput = document.getElementById("lotPlan");
+        const formStatus = document.getElementById("form-status");
+        const parcelSection = document.getElementById("parcel-section");
+        const parcelMatched = document.getElementById("parcel-matched");
+        const parcelGeoJson = document.getElementById("parcel-geojson");
+        const layerOptions = document.getElementById("layer-options");
+        const layersStatus = document.getElementById("layers-status");
+        const intersectButton = document.getElementById("intersect-button");
+        const intersectionsSection = document.getElementById("intersections-section");
+        const intersectionsOutput = document.getElementById("intersections-output");
+
+        let currentParcelGeoJSON = null;
+
+        const escapeHtml = (value) =>
+          String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+
+        async function loadLayers() {
+          layersStatus.textContent = "Loading layers...";
+          try {
+            const response = await fetch(`${API_BASE}/layers`);
+            if (!response.ok) {
+              throw new Error(`Request failed (${response.status})`);
+            }
+            const payload = await response.json();
+            const layers = Array.isArray(payload.layers) ? payload.layers : [];
+            if (!layers.length) {
+              layersStatus.textContent = "No layers available.";
+              layerOptions.innerHTML = "";
+              return;
+            }
+
+            layersStatus.textContent =
+              "Select one or more layers to intersect once a parcel is resolved.";
+            layerOptions.innerHTML = "";
+
+            layers.forEach((layer) => {
+              if (!layer || !layer.id) {
+                return;
+              }
+              const option = document.createElement("label");
+              option.className = "layer-option";
+
+              const checkbox = document.createElement("input");
+              checkbox.type = "checkbox";
+              checkbox.value = layer.id;
+              checkbox.name = "layer";
+
+              const span = document.createElement("span");
+              span.textContent = layer.label || layer.id;
+
+              option.appendChild(checkbox);
+              option.appendChild(span);
+              layerOptions.appendChild(option);
+            });
+          } catch (error) {
+            console.error(error);
+            layersStatus.textContent = `Failed to load layers: ${error.message}`;
+          }
+        }
+
+        function renderMatchedTable(matched) {
+          if (!Array.isArray(matched) || !matched.length) {
+            return "<p>No parcel matches found.</p>";
+          }
+
+          const headers = Object.keys(matched[0]);
+          const headerHtml = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
+          const rows = matched
+            .map((entry) => {
+              const cells = headers
+                .map((header) => `<td>${escapeHtml(entry[header])}</td>`)
+                .join("");
+              return `<tr>${cells}</tr>`;
+            })
+            .join("");
+          return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${rows}</tbody></table>`;
+        }
+
+        function renderIntersections(layers) {
+          if (!Array.isArray(layers) || !layers.length) {
+            return "<p>No intersections found for the selected layers.</p>";
+          }
+
+          return layers
+            .map((layer) => {
+              const features = Array.isArray(layer.features) ? layer.features : [];
+              const featuresHtml = features
+                .map((feature, index) => {
+                  const attrs = feature && typeof feature === "object" ? feature.attrs || {} : {};
+                  const rows = Object.entries(attrs)
+                    .map(
+                      ([key, value]) =>
+                        `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`
+                    )
+                    .join("");
+                  const safeName = escapeHtml(
+                    feature && feature.name
+                      ? feature.name
+                      : `${layer.label || layer.id || "Feature"} ${index + 1}`
+                  );
+                  return `
+                    <details class="feature">
+                      <summary>${safeName}</summary>
+                      <table class="attrs">
+                        ${rows || '<tr><td colspan="2"><em>No attributes</em></td></tr>'}
+                      </table>
+                    </details>
+                  `;
+                })
+                .join("") || "<p><em>No intersecting features.</em></p>";
+
+              return `
+                <article class="intersection-layer">
+                  <h3>${escapeHtml(layer.label || layer.id)}</h3>
+                  ${featuresHtml}
+                </article>
+              `;
+            })
+            .join("");
+        }
+
+        async function resolveParcel(lotPlan) {
+          formStatus.textContent = "Resolving parcel...";
+          parcelSection.hidden = true;
+          intersectionsSection.hidden = true;
+          intersectButton.disabled = true;
+
+          try {
+            const response = await fetch(`${API_BASE}/parcel/resolve`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ lotplan: lotPlan }),
+            });
+
+            if (!response.ok) {
+              const errorBody = await response.text();
+              throw new Error(errorBody || `Request failed (${response.status})`);
+            }
+
+            const payload = await response.json();
+            const matched = Array.isArray(payload.matched) ? payload.matched : [];
+            currentParcelGeoJSON = payload.parcel || null;
+
+            parcelMatched.innerHTML = renderMatchedTable(matched);
+            parcelGeoJson.textContent = currentParcelGeoJSON
+              ? JSON.stringify(currentParcelGeoJSON, null, 2)
+              : "No parcel geometry returned.";
+            parcelSection.hidden = false;
+
+            if (currentParcelGeoJSON) {
+              intersectButton.disabled = false;
+              formStatus.textContent = "Parcel resolved successfully.";
+            } else {
+              formStatus.textContent =
+                "Parcel resolved, but no geometry was available for intersections.";
+            }
+          } catch (error) {
+            console.error(error);
+            currentParcelGeoJSON = null;
+            formStatus.textContent = `Failed to resolve parcel: ${error.message}`;
+          }
+        }
+
+        async function runIntersections() {
+          if (!currentParcelGeoJSON) {
+            formStatus.textContent = "Resolve a parcel before intersecting layers.";
+            return;
+          }
+
+          const selected = Array.from(
+            layerOptions.querySelectorAll('input[type="checkbox"]:checked')
+          ).map((input) => input.value);
+
+          if (!selected.length) {
+            layersStatus.textContent = "Select one or more layers to intersect.";
+            return;
+          }
+
+          layersStatus.textContent = "Finding intersections...";
+          intersectionsSection.hidden = true;
+
+          try {
+            const response = await fetch(`${API_BASE}/intersect`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ parcel: currentParcelGeoJSON, layer_ids: selected }),
+            });
+
+            if (!response.ok) {
+              const errorBody = await response.text();
+              throw new Error(errorBody || `Request failed (${response.status})`);
+            }
+
+            const payload = await response.json();
+            const layers = Array.isArray(payload.layers) ? payload.layers : [];
+            intersectionsOutput.innerHTML = renderIntersections(layers);
+            intersectionsSection.hidden = false;
+            layersStatus.textContent = "Intersections completed.";
+          } catch (error) {
+            console.error(error);
+            layersStatus.textContent = `Failed to intersect: ${error.message}`;
+          }
+        }
+
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const lotPlan = lotPlanInput.value.trim();
+          if (!lotPlan) {
+            formStatus.textContent = "Enter a Lot/Plan value to continue.";
+            return;
+          }
+          resolveParcel(lotPlan);
+        });
+
+        intersectButton.addEventListener("click", runIntersections);
+
+        loadLayers();
+      })();
+    </script>
+  </body>
+</html>
