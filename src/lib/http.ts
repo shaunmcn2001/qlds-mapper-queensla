@@ -1,12 +1,14 @@
+import { safeFetch } from "./api";
+
 export async function fetchWithTimeout(
-  url: string,
-  opts: RequestInit & { timeoutMs?: number } = {}
+  path: string,
+  opts: RequestInit & { timeoutMs?: number } = {},
 ) {
   const { timeoutMs = 40000, ...rest } = opts;
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...rest, signal: ctrl.signal });
+    const res = await safeFetch(path, { ...rest, signal: ctrl.signal });
     return res;
   } finally {
     clearTimeout(id);
@@ -15,7 +17,7 @@ export async function fetchWithTimeout(
 
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  { retries = 2, baseDelay = 600 }: { retries?: number; baseDelay?: number } = {}
+  { retries = 2, baseDelay = 600 }: { retries?: number; baseDelay?: number } = {},
 ): Promise<T> {
   let lastErr: any;
   for (let i = 0; i <= retries; i++) {

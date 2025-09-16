@@ -8,12 +8,9 @@ services:
     plan: free
     autoDeploy: true
     # Build: write .env.production using backend's external hostname, then build
-    buildCommand: |
-      echo "VITE_API_BASE=https://${BACKEND_HOST}" > .env.production
-      npm ci
-      npm run build
+    buildCommand: VITE_API_BASE=https://${BACKEND_HOST} npm ci && npm run build
     # Serve the static build
-    startCommand: npx serve -s dist -l $PORT
+    startCommand: npm run start
     envVars:
       # Pull the backend's external hostname into BACKEND_HOST
       - key: BACKEND_HOST

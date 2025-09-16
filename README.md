@@ -69,12 +69,20 @@ Key dependencies:
 
 The repository includes a [`render.yaml`](render.yaml) that provisions both the FastAPI backend and a Render Static Site for the Vite frontend.
 
-1. **Build the frontend** – Render runs `npm install && npm run build`, producing the production-ready assets in `dist/`.
-2. **Static site** – The static service publishes the `dist/` directory and exposes the frontend at `https://lotplan-frontend.onrender.com` by default.
-3. **API base URL** – During the build, the `VITE_API_BASE` environment variable is injected with the backend’s public URL so the frontend calls the deployed API instead of `localhost`.
-4. **CORS** – The backend’s `CORS_ORIGINS` includes both `http://localhost:5173` (for local development) and the Render static site origin.
+1. **Build the frontend** – Render runs `VITE_API_BASE=https://<backend-host> npm ci && npm run build`, producing the production-ready assets in `dist/`.
+2. **Node web service** – The web service executes `npm run start`, which serves the built assets with an Express catch-all so the SPA works on every route.
+3. **API base URL** – The compiled bundle bakes in the backend URL via `VITE_API_BASE`, with a runtime fallback to `https://qlds-mapper-queensla.onrender.com` if the environment variable is missing.
+4. **CORS** – The backend’s `CORS_ORIGINS` includes both `http://localhost:5173` (for local development) and the Render frontend origin.
 
-For alternative hosting targets (e.g. GitHub Pages), set the `VITE_BASE_PATH` environment variable before running `npm run build` to control the Vite `base` path.
+If you deploy behind a sub-path, adjust [`vite.config.ts`](vite.config.ts) accordingly; the default build assumes the site is served from `/`.
+
+### Render Deploy (Manual)
+
+1. Create a **Web Service (Node)** in Render pointing at the repository root.
+2. Build Command: `VITE_API_BASE=https://qlds-mapper-queensla.onrender.com npm ci && npm run build`
+3. Start Command: `npm run start`
+4. The backend is already live at `https://qlds-mapper-queensla.onrender.com`.
+5. If hosting elsewhere or under a sub-path, update the Vite base to match (this repo defaults to `/`).
 
 ## Production Considerations
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useToast } from "./components/Toast";
 import LoadingOverlay from "./components/LoadingOverlay";
 import MapView from "./components/MapView";
+import { API_BASE } from "./lib/api";
 
 import {
   normalizeLotPlan,
@@ -21,6 +22,7 @@ export default function App() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiNotice, setApiNotice] = useState<string | null>(null);
 
   const [parcels, setParcels] = useState<any[]>([]);
   const [featuresByLayer, setFeaturesByLayer] = useState<Record<string, any[]>>({});
@@ -33,8 +35,15 @@ export default function App() {
         setLayers(arr);
         // Preselect first two layers if available (so list isn't empty)
         setSelected(arr.slice(0, 2).map(l => l.id));
+        const hasApiError = typeof arr.meta?.error === "string" && arr.meta.error.length > 0;
+        setApiNotice(hasApiError ? "API temporarily unreachable; showing empty state." : null);
+        setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
+        setApiNotice(message);
+      });
   }, []);
 
   async function runIntersect() {
@@ -61,10 +70,15 @@ export default function App() {
       toast.push("Intersecting layers…");
       const inter = await intersectLayers(resolved[0], selected);
       setFeaturesByLayer(inter);
+      setApiNotice(null);
       toast.push("Intersect complete", "success");
     } catch (e: any) {
-      setError(e?.message || String(e));
-      toast.push(e?.message || String(e), "error");
+      const message = e?.message || String(e);
+      setError(message);
+      toast.push(message, "error");
+      if (typeof message === "string" && message.toLowerCase().includes("temporarily unreachable")) {
+        setApiNotice("API temporarily unreachable; showing empty state.");
+      }
     } finally {
       setLoading(false);
     }
@@ -75,10 +89,15 @@ export default function App() {
     try {
       toast.push("Preparing KMZ…");
       await exportData(parcels[0], featuresByLayer);
+      setApiNotice(null);
       toast.push("Download started", "success");
     } catch (e: any) {
-      setError(e?.message || String(e));
-      toast.push(e?.message || String(e), "error");
+      const message = e?.message || String(e);
+      setError(message);
+      toast.push(message, "error");
+      if (typeof message === "string" && message.toLowerCase().includes("temporarily unreachable")) {
+        setApiNotice("API temporarily unreachable; showing empty state.");
+      }
     }
   }
 
@@ -92,6 +111,12 @@ export default function App() {
           Enter a Queensland Lot/Plan, pick datasets, intersect, and export KMZ.
         </p>
       </header>
+
+      {apiNotice && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {apiNotice}
+        </div>
+      )}
 
       <section className="grid gap-4 md:grid-cols-[2fr_3fr]">
         <div className="space-y-3">
@@ -155,7 +180,7 @@ export default function App() {
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
       <footer className="pt-6 text-xs text-slate-500">
-        API: <code>{import.meta.env.VITE_API_BASE || "http://localhost:8000"}</code>
+        API: <code>{API_BASE}</code>
       </footer>
 
       <LoadingOverlay show={loading} label={error ? "Retrying…" : "Working…"} />

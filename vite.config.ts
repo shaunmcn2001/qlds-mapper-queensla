@@ -7,9 +7,9 @@ import createIconImportProxy from "@github/spark/vitePhosphorIconProxyPlugin";
 import { resolve } from "path";
 
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname;
-const basePath = process.env.VITE_BASE_PATH ?? "/";
 
 export default defineConfig({
+  base: "/",
   plugins: [
     react(),
     tailwindcss(),
@@ -21,7 +21,4 @@ export default defineConfig({
       "@": resolve(projectRoot, "src"),
     },
   },
-  // Allow the deploy target to control the base path. Render deployments serve the
-  // site from '/', while GitHub Pages can override via VITE_BASE_PATH.
-  base: basePath,
 });
