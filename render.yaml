@@ -3,26 +3,32 @@ services:
   # --- Frontend as a Node Web Service (build + serve dist) ---
   - type: web
     name: lotplan-frontend
-    env: node
+    runtime: node          # use 'runtime' per current spec
     rootDirectory: .
     plan: free
     autoDeploy: true
-    buildCommand: npm ci && npm run build
+    # Build: write .env.production using backend's external hostname, then build
+    buildCommand: |
+      echo "VITE_API_BASE=https://${BACKEND_HOST}" > .env.production
+      npm ci
+      npm run build
+    # Serve the static build
     startCommand: npx serve -s dist -l $PORT
     envVars:
-      - key: VITE_API_BASE
+      # Pull the backend's external hostname into BACKEND_HOST
+      - key: BACKEND_HOST
         fromService:
           type: web
           name: lotplan-backend
-          property: url
-      # (optional) lock Node version if you want
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      # (optional) pin Node version if you like
       # - key: RENDER_NODE_VERSION
       #   value: 20
 
-  # --- Backend (unchanged) ---
+  # --- Backend (Docker) ---
   - type: web
     name: lotplan-backend
-    env: docker
+    runtime: docker
     rootDirectory: backend
     plan: free
     autoDeploy: true
