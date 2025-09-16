@@ -2,10 +2,23 @@
 
 import type { LayerConfig, Parcel, Feature } from '@/types';
 import { fetchWithTimeout, withRetry } from '@/lib/http';
+import {
+  createFallbackFeatures,
+  createFallbackLayers,
+  createFallbackParcels,
+} from '@/lib/fallbackData';
 
 export interface LayerList extends Array<LayerConfig> {
-  meta?: { error?: string };
+  meta?: { error?: string; fallback?: boolean; message?: string; timestamp?: number };
 }
+
+export interface ParcelList extends Array<Parcel> {
+  meta?: { fallback?: boolean; message?: string; timestamp?: number };
+}
+
+export type FeatureMap = Record<string, Feature[]> & {
+  meta?: { fallback?: boolean; message?: string; timestamp?: number };
+};
 
 function assertOk(res: Response) {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -31,8 +44,53 @@ export function normalizeLotPlan(input: string): string[] {
   return [s];
 }
 
-export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
-  const parcels: Parcel[] = [];
+function buildFallbackMessage(kind: string, reason?: string) {
+  const base = reason?.trim()
+    ? `${kind} unavailable (${reason}).`
+    : `${kind} unavailable.`;
+  return `${base} Showing interactive sample data so the interface remains usable.`;
+}
+
+function fallbackParcels(message?: string): ParcelList {
+  const parcels = createFallbackParcels() as ParcelList;
+  parcels.meta = {
+    fallback: true,
+    message: buildFallbackMessage('Parcel resolution', message),
+    timestamp: Date.now(),
+  };
+  return parcels;
+}
+
+function fallbackLayers(message?: string): LayerList {
+  const layers = createFallbackLayers() as LayerList;
+  const msg = buildFallbackMessage('Dataset catalogue', message);
+  layers.meta = {
+    fallback: true,
+    error: msg,
+    message: msg,
+    timestamp: Date.now(),
+  };
+  return layers;
+}
+
+function fallbackFeatures(layerIds: string[], message?: string): FeatureMap {
+  const snapshot = createFallbackFeatures();
+  const features = {} as FeatureMap;
+  layerIds.forEach((id) => {
+    if (snapshot[id]) features[id] = snapshot[id];
+  });
+  features.meta = {
+    fallback: true,
+    message: buildFallbackMessage('Intersection service', message),
+    timestamp: Date.now(),
+  };
+  return features;
+}
+
+export async function resolveParcels(normalized: string[]): Promise<ParcelList> {
+  if (normalized.length === 0) return fallbackParcels();
+
+  const parcels: ParcelList = [] as ParcelList;
   for (const lp of normalized) {
     const r = await withRetry(() =>
       fetchWithTimeout("/parcel/resolve", {
@@ -44,8 +102,12 @@ export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
     );
     assertOk(r);
     const data = await r.json();
+    if (data?.error === "unreachable") {
+      const reason = data?.message || r.headers.get("X-Safe-Fetch-Error") || undefined;
+      return fallbackParcels(reason);
+    }
     if (data?.error) {
-      throw new Error("API temporarily unreachable; showing empty state.");
+      throw new Error(data.error);
     }
     if (data?.parcel) parcels.push(toParcel(lp, data.parcel));
   }
@@ -58,6 +120,10 @@ export async function getLayers(): Promise<LayerList> {
   );
   assertOk(r);
   const json = await r.json();
+  if (json?.error === "unreachable") {
+    const reason = json?.message || r.headers.get("X-Safe-Fetch-Error") || undefined;
+    return fallbackLayers(reason);
+  }
   const arr = (json?.layers || []) as any[];
   const layers = arr.map((l: any) => ({
     id: l.id,
@@ -82,13 +148,13 @@ export async function getLayers(): Promise<LayerList> {
   })) as LayerList;
 
   if (typeof json?.error === "string" && json.error) {
-    layers.meta = { error: json.error };
+    layers.meta = { error: json.error, message: json.error, timestamp: Date.now() };
   }
 
   return layers;
 }
 
-export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promise<Record<string, Feature[]>> {
+export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promise<FeatureMap> {
   const r = await withRetry(() =>
     fetchWithTimeout("/intersect", {
       method: "POST",
@@ -99,10 +165,14 @@ export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promi
   );
   assertOk(r);
   const data = await r.json();
-  if (data?.error) {
-    throw new Error("API temporarily unreachable; showing empty state.");
+  if (data?.error === "unreachable") {
+    const reason = data?.message || r.headers.get("X-Safe-Fetch-Error") || undefined;
+    return fallbackFeatures(layerIds, reason);
   }
-  const out: Record<string, Feature[]> = {};
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+  const out = {} as FeatureMap;
   for (const layer of (data.layers || [])) {
     const feats: Feature[] = [];
     for (const f of (layer.features || [])) {
@@ -120,7 +190,8 @@ export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promi
 }
 
 export async function exportData(parcel: Parcel, features: Record<string, Feature[]>) {
-  const layers = Object.entries(features).map(([id, feats]) => ({
+  const entries = Object.entries(features).filter(([, value]) => Array.isArray(value));
+  const layers = entries.map(([id, feats]) => ({
     id,
     label: id,
     features: feats.map(f => ({ geometry: f.geometry, attrs: f.properties, name: f.displayName })),
@@ -136,8 +207,9 @@ export async function exportData(parcel: Parcel, features: Record<string, Featur
   );
   assertOk(r);
   const maybeJson = await r.clone().json().catch(() => null);
-  if (maybeJson?.error) {
-    throw new Error("API temporarily unreachable; showing empty state.");
+  if (maybeJson?.error === "unreachable") {
+    const reason = maybeJson?.message || r.headers.get("X-Safe-Fetch-Error") || undefined;
+    throw new Error(buildFallbackMessage('Export service', reason));
   }
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
