@@ -1,9 +1,11 @@
 // Real backend integration for GIS helpers
 
-import type { ParcelInput, LayerConfig, Parcel, Feature } from '@/types';
+import type { LayerConfig, Parcel, Feature } from '@/types';
 import { fetchWithTimeout, withRetry } from '@/lib/http';
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+export interface LayerList extends Array<LayerConfig> {
+  meta?: { error?: string };
+}
 
 function assertOk(res: Response) {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -33,7 +35,7 @@ export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
   const parcels: Parcel[] = [];
   for (const lp of normalized) {
     const r = await withRetry(() =>
-      fetchWithTimeout(`${API_BASE}/parcel/resolve`, {
+      fetchWithTimeout("/parcel/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lotplan: lp }),
@@ -42,19 +44,22 @@ export async function resolveParcels(normalized: string[]): Promise<Parcel[]> {
     );
     assertOk(r);
     const data = await r.json();
+    if (data?.error) {
+      throw new Error("API temporarily unreachable; showing empty state.");
+    }
     if (data?.parcel) parcels.push(toParcel(lp, data.parcel));
   }
   return parcels;
 }
 
-export async function getLayers(): Promise<LayerConfig[]> {
+export async function getLayers(): Promise<LayerList> {
   const r = await withRetry(() =>
-    fetchWithTimeout(`${API_BASE}/layers`, { timeoutMs: 20000 })
+    fetchWithTimeout("/layers", { timeoutMs: 20000 })
   );
   assertOk(r);
   const json = await r.json();
   const arr = (json?.layers || []) as any[];
-  return arr.map((l: any) => ({
+  const layers = arr.map((l: any) => ({
     id: l.id,
     label: l.label || l.id,
     url: l.url,
@@ -74,12 +79,18 @@ export async function getLayers(): Promise<LayerConfig[]> {
       order: l.popup?.order ?? [],
       hideNull: l.popup?.hide_null ?? true,
     },
-  }));
+  })) as LayerList;
+
+  if (typeof json?.error === "string" && json.error) {
+    layers.meta = { error: json.error };
+  }
+
+  return layers;
 }
 
 export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promise<Record<string, Feature[]>> {
   const r = await withRetry(() =>
-    fetchWithTimeout(`${API_BASE}/intersect`, {
+    fetchWithTimeout("/intersect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ parcel: parcel.geometry, layer_ids: layerIds }),
@@ -88,6 +99,9 @@ export async function intersectLayers(parcel: Parcel, layerIds: string[]): Promi
   );
   assertOk(r);
   const data = await r.json();
+  if (data?.error) {
+    throw new Error("API temporarily unreachable; showing empty state.");
+  }
   const out: Record<string, Feature[]> = {};
   for (const layer of (data.layers || [])) {
     const feats: Feature[] = [];
@@ -113,7 +127,7 @@ export async function exportData(parcel: Parcel, features: Record<string, Featur
     style: {},
   }));
   const r = await withRetry(() =>
-    fetchWithTimeout(`${API_BASE}/export/kml`, {
+    fetchWithTimeout("/export/kml", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ parcel: parcel.geometry, layers }),
@@ -121,6 +135,10 @@ export async function exportData(parcel: Parcel, features: Record<string, Featur
     })
   );
   assertOk(r);
+  const maybeJson = await r.clone().json().catch(() => null);
+  if (maybeJson?.error) {
+    throw new Error("API temporarily unreachable; showing empty state.");
+  }
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
